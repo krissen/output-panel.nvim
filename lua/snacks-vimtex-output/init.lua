@@ -49,6 +49,7 @@ local default_config = {
   notifications = {
     enabled = true,
     title = "VimTeX",
+    persist_failure = true,
   },
   notifier = nil,
   border_highlight = "FloatBorder",
@@ -79,6 +80,8 @@ local state = {
   last_close_reason = nil,
   augroup = nil,
   notify = nil,
+  failure_notification = nil,
+  running_notified = false,
 }
 
 local function notifier()
@@ -91,25 +94,25 @@ local function notifier()
   end
   local notify = {
     info = function(msg, opts)
-      vim.notify(msg, vim.log.levels.INFO, opts)
+      return vim.notify(msg, vim.log.levels.INFO, opts)
     end,
     warn = function(msg, opts)
-      vim.notify(msg, vim.log.levels.WARN, opts)
+      return vim.notify(msg, vim.log.levels.WARN, opts)
     end,
     error = function(msg, opts)
-      vim.notify(msg, vim.log.levels.ERROR, opts)
+      return vim.notify(msg, vim.log.levels.ERROR, opts)
     end,
   }
   local ok, snacks = pcall(require, "snacks")
   if ok and snacks.notify then
     notify.info = function(msg, opts)
-      snacks.notify.info(msg, opts)
+      return snacks.notify.info(msg, opts)
     end
     notify.warn = function(msg, opts)
-      snacks.notify.warn(msg, opts)
+      return snacks.notify.warn(msg, opts)
     end
     notify.error = function(msg, opts)
-      snacks.notify.error(msg, opts)
+      return snacks.notify.error(msg, opts)
     end
   end
   state.notify = notify
@@ -127,8 +130,12 @@ local function notify(level, msg, opts)
   end
   local handler = notifier()[level]
   if handler then
-    handler(msg, opts)
+    local ok, result = pcall(handler, msg, opts)
+    if ok then
+      return result
+    end
   end
+  return nil
 end
 
 local function clamp(value, min_value, max_value)
@@ -667,8 +674,9 @@ local function on_compile_started(event)
       retry_delay = (config.auto_open and config.auto_open.delay) or 120,
     })
   end
-  if not already_running then
+  if not state.running_notified then
     notify("info", "LaTeX build started…")
+    state.running_notified = true
   end
 end
 
@@ -678,6 +686,7 @@ local function on_compile_succeeded(event)
   state.elapsed = elapsed
   state.started_at = nil
   state.status = "success"
+  state.running_notified = false
   stop_polling()
   local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
   if auto_open_enabled() or window_exists then
@@ -689,7 +698,12 @@ local function on_compile_succeeded(event)
     })
     schedule_hide(config.auto_hide and config.auto_hide.delay)
   end
-  notify("info", "LaTeX build finished" .. format_duration_suffix())
+  local notify_opts
+  if state.failure_notification then
+    notify_opts = { replace = state.failure_notification }
+  end
+  notify("info", "LaTeX build finished" .. format_duration_suffix(), notify_opts)
+  state.failure_notification = nil
 end
 
 local function on_compile_failed(event)
@@ -698,6 +712,7 @@ local function on_compile_failed(event)
   state.elapsed = elapsed
   state.started_at = nil
   state.status = "failure"
+  state.running_notified = false
   stop_polling()
   state.hide_token = state.hide_token + 1
   local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
@@ -709,10 +724,16 @@ local function on_compile_failed(event)
       focus = state.focused,
     })
   end
-  notify("error", "LaTeX build failed" .. format_duration_suffix(), {
-    timeout = false,
-    keep = true,
-  })
+  local notifications = config.notifications or {}
+  local failure_opts = {
+    replace = state.failure_notification,
+  }
+  if notifications.persist_failure ~= false then
+    failure_opts.timeout = false
+    failure_opts.keep = true
+  end
+  state.failure_notification =
+    notify("error", "LaTeX build failed" .. format_duration_suffix(), failure_opts)
 end
 
 local function on_compile_stopped()
@@ -720,6 +741,7 @@ local function on_compile_stopped()
   state.status = was_running and "idle" or state.status
   state.started_at = nil
   state.elapsed = was_running and nil or state.elapsed
+  state.running_notified = false
   stop_polling()
   if was_running or state.win then
     close_window({ reason = "stopped" })
@@ -783,6 +805,8 @@ function M.setup(opts)
   M.config = config
   state.border_hl = config.border_highlight or "FloatBorder"
   state.notify = nil
+  state.failure_notification = nil
+  state.running_notified = false
   setup_autocmds()
   setup_commands()
   return config

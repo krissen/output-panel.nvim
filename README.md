@@ -51,7 +51,8 @@ Run `require("snacks-vimtex-output").setup()` once (e.g., inside your plugin man
 - After installation nothing pops up automatically—the plugin waits for you to call one of its helpers or commands.
 - Once opened, the overlay attaches to the current VimTeX build, streams log updates live, and hides on success (if `auto_hide.enabled` is true). You can close it mid-build and reopen it later; the stream resumes immediately.
 - Failed builds stay visible until you close them so you can read the error trace.
-- Notifications mirror each build status without any additional configuration.
+- Notifications mirror each build status without any additional configuration. Failure popups stay pinned (by default) so you can revisit the log, but a later success automatically replaces the old error.
+- The overlay is read-only; hiding or reopening it never pauses or stops VimTeX builds.
 - Want the overlay to appear the moment a compile starts? Set `auto_open.enabled = true` to opt in to the automatic window. The plugin listens to both `VimtexEventCompileStarted` and `VimtexEventCompiling`, so continuous latexmk rebuilds triggered by buffer writes reopen the overlay as well.
 
 ### Manual control
@@ -126,6 +127,7 @@ require("snacks-vimtex-output").setup({
   notifications = {
     enabled = true,
     title = "VimTeX", -- label injected into notification popups
+    persist_failure = true, -- keep the most recent failure notification visible until a success replaces it
   },
   notifier = nil, -- table with info/warn/error overrides (falls back to snacks.notify/vim.notify)
 })
@@ -135,6 +137,7 @@ require("snacks-vimtex-output").setup({
 
 - Increase `mini.height_ratio` if your TeX toolchain is especially chatty.
 - Raise `mini.row_offset` (default 5) if you use a tall statusline and need extra breathing room above it.
+- Set `notifications.persist_failure = false` if you prefer failure popups to fade like the rest of your notifications.
 - Set `auto_hide.enabled = false` to keep successful builds on screen until you close them.
 - Provide a `notifier` table if you want to integrate with another notification framework.
 - All helpers live on the module table, so you can call them from custom commands or statuslines.
