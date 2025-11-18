@@ -58,8 +58,20 @@ local default_config = {
 local config = vim.deepcopy(default_config)
 M.config = config
 
+local function assign_config(new_config)
+  for key in pairs(config) do
+    config[key] = nil
+  end
+  for key, value in pairs(new_config) do
+    config[key] = value
+  end
+end
+
 local function auto_open_enabled()
-  return not config.auto_open or config.auto_open.enabled ~= false
+  if not config.auto_open then
+    return false
+  end
+  return config.auto_open.enabled == true
 end
 
 local state = {
@@ -488,7 +500,6 @@ local function render_window(opts)
   local buf = ensure_output_ready({
     target = opts.target,
     source_buf = opts.source_buf,
-    poll = should_poll,
     quiet = opts.quiet,
   })
   if not buf then
@@ -801,8 +812,8 @@ local function setup_commands()
 end
 
 function M.setup(opts)
-  config = vim.tbl_deep_extend("force", vim.deepcopy(default_config), opts or {})
-  M.config = config
+  local merged = vim.tbl_deep_extend("force", vim.deepcopy(default_config), opts or {})
+  assign_config(merged)
   state.border_hl = config.border_highlight or "FloatBorder"
   state.notify = nil
   state.failure_notification = nil

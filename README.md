@@ -71,7 +71,7 @@ vimtex_output.toggle_focus()
 
 | Command | Description |
 | --- | --- |
-| `:VimtexOutputShow` | Open the overlay in mini mode. |
+| `:VimtexOutputShow` | Show the overlay. |
 | `:VimtexOutputHide` | Close the overlay. |
 | `:VimtexOutputToggle` | Toggle visibility. |
 | `:VimtexOutputToggleFocus` | Switch between the compact and focused layouts. |
@@ -144,4 +144,4 @@ require("snacks-vimtex-output").setup({
 
 ## Development
 
-Formatting is enforced through [Stylua](https://github.com/JohnnyMorganz/StyLua). Run `stylua lua/` before committing.
+Formatting is enforced through [StyLua](https://github.com/JohnnyMorganz/StyLua). Run `stylua lua/` before committing.
