@@ -52,7 +52,10 @@ local default_config = {
   notifications = {
     enabled = true,
     title = "VimTeX",
-    persist_failure = true,
+    -- Set to false to disable persistence, 0/-1 (or true) to keep failures
+    -- until the next update, or a positive number of seconds (default 45)
+    -- before the notification auto-dismisses.
+    persist_failure = 45,
   },
   notifier = nil,
   border_highlight = "FloatBorder",
@@ -118,6 +121,36 @@ local function with_failure_replace(opts)
   end
   state.failure_notification = nil
   return opts
+end
+
+-- Interpret persist_failure config values (-1/0/true for indefinite persistence,
+-- positive numbers for auto-dismiss seconds, false to disable) and attach the
+-- appropriate notification options so failure messages stay visible for the
+-- requested duration.
+local function failure_notification_options(notifications)
+  local failure_opts = { replace = state.failure_notification }
+  local persist = notifications and notifications.persist_failure
+  if persist == nil then
+    persist = default_config.notifications.persist_failure
+  end
+  if persist == false then
+    return failure_opts
+  end
+  if persist == true then
+    persist = 0
+  end
+  if type(persist) == "number" then
+    if persist <= 0 then
+      failure_opts.timeout = false
+    else
+      failure_opts.timeout = persist * 1000
+    end
+    failure_opts.keep = true
+    return failure_opts
+  end
+  failure_opts.timeout = false
+  failure_opts.keep = true
+  return failure_opts
 end
 
 local function current_config()
@@ -1014,12 +1047,8 @@ function M.run(opts)
       if open_panel or window_exists or cfg.open_on_error ~= false then
         render_window({ target = log_path, focus = state.focused, border_hl = state.border_hl })
       end
-      local failure_opts = { replace = state.failure_notification }
       local notifications = cfg.notifications or {}
-      if notifications.persist_failure ~= false then
-        failure_opts.timeout = false
-        failure_opts.keep = true
-      end
+      local failure_opts = failure_notification_options(notifications)
       local failure_message = opts.error or (job_title .. " failed")
       state.failure_notification =
         notify("error", failure_message .. format_duration_suffix(), failure_opts)
@@ -1200,13 +1229,7 @@ local function on_compile_failed(event)
   end
   -- Show persistent failure notification (if configured) so it stays visible until next success
   local notifications = cfg.notifications or {}
-  local failure_opts = {
-    replace = state.failure_notification,
-  }
-  if notifications.persist_failure ~= false then
-    failure_opts.timeout = false -- Don't auto-dismiss
-    failure_opts.keep = true -- Keep in notification history
-  end
+  local failure_opts = failure_notification_options(notifications)
   state.failure_notification =
     notify("error", "LaTeX build failed" .. format_duration_suffix(), failure_opts)
 end
