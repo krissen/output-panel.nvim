@@ -96,14 +96,19 @@ local state = {
   running_notified = false,
 }
 
+-- Lazy-load and cache the notification backend (custom, snacks.nvim, or vim.notify fallback).
+-- The notifier abstraction allows users to provide their own notification functions while
+-- automatically detecting and using snacks.nvim when available, falling back to vim.notify otherwise.
 local function notifier()
   if state.notify then
     return state.notify
   end
+  -- Use custom notifier if provided in config
   if config.notifier then
     state.notify = config.notifier
     return state.notify
   end
+  -- Default to vim.notify, but upgrade to snacks.notify if available
   local notify = {
     info = function(msg, opts)
       return vim.notify(msg, vim.log.levels.INFO, opts)
@@ -115,6 +120,7 @@ local function notifier()
       return vim.notify(msg, vim.log.levels.ERROR, opts)
     end,
   }
+  -- Detect snacks.nvim and use its richer notification API if present
   local ok, snacks = pcall(require, "snacks")
   if ok and snacks.notify then
     notify.info = function(msg, opts)
@@ -131,6 +137,8 @@ local function notifier()
   return notify
 end
 
+-- Send a notification at the specified level (info/warn/error) with optional config overrides.
+-- Respects config.notifications.enabled and automatically adds title if not provided.
 local function notify(level, msg, opts)
   local notifications = config.notifications or {}
   if notifications.enabled == false then
@@ -440,21 +448,30 @@ local function ensure_output_ready(opts)
   return buf
 end
 
+-- Calculate window dimensions and position based on current terminal size and layout config.
+-- @param focused boolean: true for focus mode (large interactive window), false for mini mode (compact overlay)
+-- @return width, height, row, col: dimensions and position for nvim_open_win
 local function window_dimensions(focused)
   local layout = focused and config.focus or config.mini
   local cols = vim.o.columns
   local lines = vim.o.lines
 
+  -- Calculate width as a percentage of terminal width, then clamp to min/max bounds
   local width = math.floor(cols * (layout.width_scale or 0.75))
   width = clamp(width, layout.width_min or 40, layout.width_max or cols)
 
+  -- Calculate height as a percentage of terminal height, then clamp to min/max bounds
   local height = math.floor(lines * (layout.height_ratio or 0.3))
   height = clamp(height, layout.height_min or 6, layout.height_max or math.max(2, lines - 2))
 
+  -- Horizontal positioning: align is a 0-1 value where 0=left, 0.5=center, 1=right
+  -- Then apply col_offset as a fine-tuning adjustment
   local align = clamp(layout.horizontal_align or 0.5, 0, 1)
   local col = math.floor((cols - width) * align + (layout.col_offset or 0))
   col = clamp(col, 0, math.max(0, cols - width))
 
+  -- Vertical positioning: anchor determines where row_offset is measured from
+  -- top: offset from top edge; center: offset from vertical center; bottom: offset from bottom edge
   local anchor = layout.row_anchor or "bottom"
   local row_offset = layout.row_offset or 0
   local row
@@ -470,22 +487,29 @@ local function window_dimensions(focused)
   return width, height, row, col
 end
 
+-- Temporarily increase scrolloff in mini mode to prevent the overlay from covering the cursor.
+-- In focus mode, the user controls cursor position, so we restore the original scrolloff.
+-- This ensures the cursor always has enough padding when typing while the mini overlay is visible.
 local function apply_cursor_guard(height, focused)
   if focused then
+    -- Restore original scrolloff when entering focus mode
     if state.scrolloff_restore ~= nil then
       vim.o.scrolloff = state.scrolloff_restore
       state.scrolloff_restore = nil
     end
     return
   end
+  -- In mini mode, ensure scrolloff is large enough to keep cursor visible above the overlay
   local margin = config.scrolloff_margin or 1
   local needed = math.max(0, height + margin)
   if needed == 0 then
     return
   end
+  -- Save original scrolloff only once (when first showing mini overlay)
   if state.scrolloff_restore == nil then
     state.scrolloff_restore = vim.o.scrolloff
   end
+  -- Increase scrolloff if current value is too small
   if vim.o.scrolloff < needed then
     vim.o.scrolloff = needed
   end
@@ -576,33 +600,45 @@ local function render_window(opts)
   return state.win
 end
 
+-- Attempt to render the window with retry logic to handle race conditions.
+-- VimTeX sometimes recreates the log file during compilation startup, causing the initial
+-- render to fail because the file doesn't exist yet. This function retries after a delay.
+-- Uses token-based cancellation to abort retries if the window is closed or compilation stops.
 local function render_with_retry(opts)
   opts = opts or {}
   local attempts = opts.retry_count or 0
   local delay = opts.retry_delay or 100
+  -- Strip retry parameters before passing to render_window
   local render_opts = vim.deepcopy(opts)
   render_opts.retry_count = nil
   render_opts.retry_delay = nil
+  -- Try rendering immediately first
   if render_window(render_opts) then
     return
   end
+  -- If no retries configured or render succeeded, we're done
   if attempts <= 0 then
     return
   end
+  -- Increment token to cancel any previous retry loops
   state.render_retry_token = state.render_retry_token + 1
   local token = state.render_retry_token
+  -- Recursive retry function with token-based cancellation
   local function retry(remaining)
     if remaining <= 0 then
       return
     end
     vim.defer_fn(function()
+      -- Abort if token changed (window closed) or compilation stopped
       if state.render_retry_token ~= token or state.status ~= "running" then
         return
       end
       if render_window(render_opts) then
+        -- Success! Invalidate this retry chain
         state.render_retry_token = state.render_retry_token + 1
         return
       end
+      -- Still failing, try again
       retry(remaining - 1)
     end, delay)
   end
@@ -654,6 +690,8 @@ function M.toggle_focus()
   render_window({ focus = not state.focused })
 end
 
+-- Extract VimTeX event context to determine which buffer and log file to track.
+-- VimTeX events include a buffer reference; we use it to find the compiler output path.
 local function event_context(event)
   local buf = event and event.buf and event.buf ~= 0 and event.buf or nil
   local target = compiler_output_path(buf)
@@ -663,17 +701,21 @@ local function event_context(event)
   return { target = target or state.target, source_buf = buf }
 end
 
+-- Handle VimTeX compilation start events (VimtexEventCompiling, VimtexEventCompileStarted).
+-- Transitions state to "running", starts the timer if needed, and shows the overlay if configured.
 local function on_compile_started(event)
   local ctx = event_context(event)
   local already_running = state.status == "running"
+  -- Only reset timer on the first compile event (not subsequent recompiles)
   if not already_running then
     state.started_at = current_time()
     state.elapsed = nil
   end
   state.status = "running"
   state.border_hl = config.border_highlight or "FloatBorder"
-  state.hide_token = state.hide_token + 1
+  state.hide_token = state.hide_token + 1 -- Cancel any pending auto-hide
   local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
+  -- Show overlay if auto-open is enabled OR if the user already opened it manually
   if auto_open_enabled() or window_exists then
     render_with_retry({
       target = ctx.target,
@@ -691,6 +733,9 @@ local function on_compile_started(event)
   end
 end
 
+-- Handle VimTeX compilation success event (VimtexEventCompileSuccess).
+-- Stops polling, transitions to "success" state, updates border to green, and schedules auto-hide.
+-- Replaces any previous failure notification with a success message.
 local function on_compile_succeeded(event)
   local ctx = event_context(event)
   local elapsed = elapsed_seconds()
@@ -702,13 +747,14 @@ local function on_compile_succeeded(event)
   local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
   if auto_open_enabled() or window_exists then
     render_window({
-      border_hl = "DiagnosticOk",
+      border_hl = "DiagnosticOk", -- Green border for success
       target = ctx.target,
       source_buf = ctx.source_buf,
       focus = state.focused,
     })
     schedule_hide(config.auto_hide and config.auto_hide.delay)
   end
+  -- Replace previous failure notification if one exists
   local notify_opts
   if state.failure_notification then
     notify_opts = { replace = state.failure_notification }
@@ -717,6 +763,9 @@ local function on_compile_succeeded(event)
   state.failure_notification = nil
 end
 
+-- Handle VimTeX compilation failure event (VimtexEventCompileFailed).
+-- Stops polling, transitions to "failure" state, updates border to red, and shows persistent notification.
+-- The overlay stays visible (auto-hide is cancelled) so the user can inspect the error log.
 local function on_compile_failed(event)
   local ctx = event_context(event)
   local elapsed = elapsed_seconds()
@@ -725,23 +774,24 @@ local function on_compile_failed(event)
   state.status = "failure"
   state.running_notified = false
   stop_polling()
-  state.hide_token = state.hide_token + 1
+  state.hide_token = state.hide_token + 1 -- Cancel any pending auto-hide
   local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
   if auto_open_enabled() or window_exists then
     render_window({
-      border_hl = "DiagnosticError",
+      border_hl = "DiagnosticError", -- Red border for failure
       target = ctx.target,
       source_buf = ctx.source_buf,
       focus = state.focused,
     })
   end
+  -- Show persistent failure notification (if configured) so it stays visible until next success
   local notifications = config.notifications or {}
   local failure_opts = {
     replace = state.failure_notification,
   }
   if notifications.persist_failure ~= false then
-    failure_opts.timeout = false
-    failure_opts.keep = true
+    failure_opts.timeout = false -- Don't auto-dismiss
+    failure_opts.keep = true -- Keep in notification history
   end
   state.failure_notification =
     notify("error", "LaTeX build failed" .. format_duration_suffix(), failure_opts)
