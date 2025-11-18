@@ -36,7 +36,7 @@ local default_config = {
   scrolloff_margin = 2,
   -- Retry logic for auto-opening when the log file is recreated lazily
   auto_open = {
-    enabled = true,
+    enabled = false,
     retries = 6,
     delay = 150,
   },
@@ -207,6 +207,16 @@ local function restore_previous_window()
   end
 end
 
+local function stop_polling()
+  if state.timer then
+    state.timer:stop()
+    if state.timer.close then
+      state.timer:close()
+    end
+    state.timer = nil
+  end
+end
+
 local function close_window(opts)
   opts = opts or {}
   stop_polling()
@@ -223,16 +233,6 @@ local function close_window(opts)
     state.scrolloff_restore = nil
   end
   restore_previous_window()
-end
-
-local function stop_polling()
-  if state.timer then
-    state.timer:stop()
-    if state.timer.close then
-      state.timer:close()
-    end
-    state.timer = nil
-  end
 end
 
 local function schedule_hide(delay)
