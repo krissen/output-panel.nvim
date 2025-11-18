@@ -131,8 +131,16 @@ local function dismiss_notification_handle(handle)
       return
     end
   end
-  if vim.notify and vim.notify.dismiss then
-    pcall(vim.notify.dismiss, { pending = false, silent = true })
+  -- Guard against setups that replace vim.notify with a bare function (e.g. snacks.nvim)
+  -- where indexing `.dismiss` would normally throw; pcall keeps the fallback safe.
+  local ok, dismiss = pcall(function()
+    if not vim.notify then
+      return nil
+    end
+    return vim.notify.dismiss
+  end)
+  if ok and type(dismiss) == "function" then
+    pcall(dismiss, { pending = false, silent = true })
   end
 end
 
