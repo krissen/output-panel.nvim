@@ -108,17 +108,57 @@ local state = {
   job = nil,
 }
 
+-- Attempt to dismiss a previously shown notification handle regardless of the
+-- backend (Snacks, nvim-notify, built-in vim.notify). Falls back to
+-- vim.notify.dismiss to ensure stale toasts disappear even if a handle wasn't
+-- returned.
+local function dismiss_notification_handle(handle)
+  if type(handle) == "table" then
+    if type(handle.dismiss) == "function" then
+      local ok = pcall(handle.dismiss, handle)
+      if ok then
+        return
+      end
+    end
+    if type(handle.close) == "function" then
+      local ok = pcall(handle.close, handle)
+      if ok then
+        return
+      end
+    end
+    if handle.win and vim.api.nvim_win_is_valid(handle.win) then
+      pcall(vim.api.nvim_win_close, handle.win, true)
+      return
+    end
+  end
+  if vim.notify and vim.notify.dismiss then
+    pcall(vim.notify.dismiss, { pending = false, silent = true })
+  end
+end
+
+-- Return the raw notification handle saved for the last failure toast.
+local function failure_notification_handle()
+  if state.failure_notification then
+    return state.failure_notification.handle
+  end
+  return nil
+end
+
 -- Return replacement opts when a persistent failure notification exists so the
--- next info/success message can dismiss the stale error toast.
+-- next info/success message can dismiss the stale error toast. We also
+-- immediately dismiss the previous failure to guarantee the UI clears even if
+-- the backend does not respect the replace handle.
 local function with_failure_replace(opts)
   if not state.failure_notification then
     return opts
   end
+  local handle = failure_notification_handle()
   if opts then
-    opts.replace = state.failure_notification
+    opts.replace = handle
   else
-    opts = { replace = state.failure_notification }
+    opts = { replace = handle }
   end
+  dismiss_notification_handle(handle)
   state.failure_notification = nil
   return opts
 end
@@ -128,7 +168,7 @@ end
 -- appropriate notification options so failure messages stay visible for the
 -- requested duration.
 local function failure_notification_options(notifications)
-  local failure_opts = { replace = state.failure_notification }
+  local failure_opts = { replace = failure_notification_handle() }
   local persist = notifications and notifications.persist_failure
   if persist == nil then
     persist = default_config.notifications.persist_failure
@@ -1050,8 +1090,9 @@ function M.run(opts)
       local notifications = cfg.notifications or {}
       local failure_opts = failure_notification_options(notifications)
       local failure_message = opts.error or (job_title .. " failed")
-      state.failure_notification =
-        notify("error", failure_message .. format_duration_suffix(), failure_opts)
+      state.failure_notification = {
+        handle = notify("error", failure_message .. format_duration_suffix(), failure_opts),
+      }
     end
     if opts.on_exit then
       opts.on_exit(obj)
@@ -1230,8 +1271,9 @@ local function on_compile_failed(event)
   -- Show persistent failure notification (if configured) so it stays visible until next success
   local notifications = cfg.notifications or {}
   local failure_opts = failure_notification_options(notifications)
-  state.failure_notification =
-    notify("error", "LaTeX build failed" .. format_duration_suffix(), failure_opts)
+  state.failure_notification = {
+    handle = notify("error", "LaTeX build failed" .. format_duration_suffix(), failure_opts),
+  }
 end
 
 local function on_compile_stopped()
