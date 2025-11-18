@@ -647,8 +647,11 @@ end
 
 local function on_compile_started(event)
   local ctx = event_context(event)
-  state.started_at = current_time()
-  state.elapsed = nil
+  local already_running = state.status == "running"
+  if not already_running then
+    state.started_at = current_time()
+    state.elapsed = nil
+  end
   state.status = "running"
   state.border_hl = config.border_highlight or "FloatBorder"
   state.hide_token = state.hide_token + 1
@@ -664,7 +667,9 @@ local function on_compile_started(event)
       retry_delay = (config.auto_open and config.auto_open.delay) or 120,
     })
   end
-  notify("info", "LaTeX build started…")
+  if not already_running then
+    notify("info", "LaTeX build started…")
+  end
 end
 
 local function on_compile_succeeded(event)
