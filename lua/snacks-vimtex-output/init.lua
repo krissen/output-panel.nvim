@@ -8,10 +8,10 @@ local uv = vim.uv or vim.loop
 local default_config = {
   -- Dimensions for the unfocused mini overlay
   mini = {
-    width_scale = 0.55,
+    width_scale = 0.90,
     width_min = 48,
     width_max = 120,
-    height_ratio = 0.22,
+    height_ratio = 0.10,
     height_min = 5,
     height_max = 14,
     row_anchor = "bottom",
@@ -33,7 +33,7 @@ local default_config = {
     col_offset = 0,
   },
   -- Extra cursor padding so the overlay never hides the cursor
-  scrolloff_margin = 2,
+  scrolloff_margin = 5,
   -- Retry logic for auto-opening when the log file is recreated lazily
   auto_open = {
     enabled = false,
