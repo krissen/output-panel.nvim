@@ -50,6 +50,34 @@ require("snacks-vimtex-output").setup({
 
 The plugin hooks into VimTeX's compiler events (`VimtexEventCompiling`, `VimtexEventCompileSuccess`, etc.) and reads the log file path from `vim.b.vimtex.compiler.output`. VimTeX is the only hard dependency; everything else is optional.
 
+## Prior Art & Scope
+
+This plugin addresses a specific gap in the Neovim LaTeX ecosystem: **a VimTeX-aware overlay for compilation output**.
+
+### What Already Exists
+
+We've surveyed the landscape of similar tools to understand where this plugin fits:
+
+**VimTeX itself** handles compilation (via latexmk), log parsing, and error navigation through quickfix/location lists. It displays output in traditional splits, not as an overlay UI. This plugin builds on VimTeX's events and APIs rather than reimplementing its compilation logic.
+
+**General terminal/job plugins** (like `toggleterm.nvim`) can display arbitrary command output in floating terminals. However, they lack VimTeX-specific integration: no automatic hooking into compilation events, no understanding of LaTeX log structure, and no awareness of VimTeX's forward search or error navigation.
+
+**Diagnostics UI plugins** (like `trouble.nvim`, `noice.nvim`) provide beautiful floating windows for LSP diagnostics, quickfix lists, and notifications. While they could theoretically display VimTeX errors if mapped to diagnostics, they aren't designed for live compilation output streaming or LaTeX-specific workflow integration.
+
+**General task runners** (like `overseer.nvim` with 1.7k stars, or `compiler.nvim` with 633 stars) manage build tasks across many languages and can display output. They're powerful for generic task management but don't provide the tight VimTeX integration or the specific overlay UX this plugin offers (compact mini mode, auto-hide on success, color-coded status borders).
+
+**snacks.nvim** itself is a UI toolkit providing notifications, popups, and other interface components. This plugin uses it only as an optional notification backend—the core overlay functionality uses native Neovim floating window APIs.
+
+### What's Missing (and Why This Plugin Exists)
+
+No existing plugin combines:
+- **VimTeX-aware integration**: Hooks into VimTeX compilation events (`VimtexEventCompiling`, `VimtexEventCompileSuccess`, etc.)
+- **Live overlay UI**: Streaming log updates in a dedicated floating window with mini/focus modes
+- **Smart auto-hide**: Automatically dismissing on successful builds to reduce clutter
+- **Status-aware presentation**: Color-coded borders and notifications reflecting build state
+
+This plugin fills that niche by providing a specialized UI layer on top of VimTeX's compilation engine, without duplicating its core functionality.
+
 ## Alternatives & Comparison
 
 ### VimTeX's Built-in Output Buffer
