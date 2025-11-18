@@ -225,7 +225,6 @@ local function close_window(opts)
   end
   state.win = nil
   state.focused = false
-  state.status = state.status ~= "running" and state.status or "idle"
   state.render_retry_token = state.render_retry_token + 1
   state.last_close_reason = opts.reason
   if state.scrolloff_restore ~= nil then
@@ -372,6 +371,11 @@ local function update_buffer_from_file(force)
   return true
 end
 
+-- Keep a lightweight polling loop running while the overlay is visible so the
+-- buffer stays in sync with latexmk's stdout and the title timer keeps
+-- updating. The timer exits automatically when the floating window disappears
+-- (either because the user hid it or VimTeX stopped the build) and spins up
+-- again the next time `render_window` requests live updates.
 local function start_polling()
   if state.timer or not uv then
     return
@@ -414,9 +418,6 @@ local function ensure_output_ready(opts)
     return nil
   end
   update_buffer_from_file(true)
-  if opts.poll then
-    start_polling()
-  end
   return buf
 end
 
@@ -549,6 +550,9 @@ local function render_window(opts)
   refresh_window_title()
   if not desired_focus then
     scroll_to_bottom()
+  end
+  if should_poll then
+    start_polling()
   end
   state.last_close_reason = nil
   return state.win
@@ -709,6 +713,11 @@ local function setup_autocmds()
   end
   local group = vim.api.nvim_create_augroup("snacks_vimtex_output", { clear = true })
   state.augroup = group
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "VimtexEventCompiling",
+    callback = on_compile_started,
+  })
   vim.api.nvim_create_autocmd("User", {
     group = group,
     pattern = "VimtexEventCompileStarted",

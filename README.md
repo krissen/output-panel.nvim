@@ -49,10 +49,10 @@ Run `require("snacks-vimtex-output").setup()` once (e.g., inside your plugin man
 ### Default behavior
 
 - After installation nothing pops up automatically—the plugin waits for you to call one of its helpers or commands.
-- Once opened, the overlay attaches to the current VimTeX build, streams log updates live, and hides on success (if `auto_hide.enabled` is true).
+- Once opened, the overlay attaches to the current VimTeX build, streams log updates live, and hides on success (if `auto_hide.enabled` is true). You can close it mid-build and reopen it later; the stream resumes immediately.
 - Failed builds stay visible until you close them so you can read the error trace.
 - Notifications mirror each build status without any additional configuration.
-- Want the overlay to appear the moment a compile starts? Set `auto_open.enabled = true` to opt in to the automatic window.
+- Want the overlay to appear the moment a compile starts? Set `auto_open.enabled = true` to opt in to the automatic window. The plugin listens to both `VimtexEventCompileStarted` and `VimtexEventCompiling`, so continuous latexmk rebuilds triggered by buffer writes reopen the overlay as well.
 
 ### Manual control
 
@@ -116,7 +116,7 @@ require("snacks-vimtex-output").setup({
   border_highlight = "FloatBorder", -- default window border highlight group
   auto_open = {
     enabled = false, -- set to true to automatically pop open the overlay when VimTeX starts compiling
-    retries = 6, -- how many times to retry opening while latexmk creates the log file
+    retries = 6, -- how many times to retry opening while latexmk creates the log file or restarts
     delay = 150, -- milliseconds between retries
   },
   auto_hide = {
