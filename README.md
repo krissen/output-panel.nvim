@@ -3,9 +3,9 @@
 A configurable floating output window for Neovim jobs. The plugin began life as a
 VimTeX helper but now exposes a generic runner so any long-running shell
 command—`Rscript`, `pandoc`, custom build scripts, etc.—can stream their stdout
-and stderr into the same Snacks-friendly panel while surfacing success/failure
-notifications. The original VimTeX integration remains available as a
-preconfigured profile and example workflow.
+and stderr into the same lightweight panel while surfacing success/failure
+notifications (optionally via snacks.nvim). The original VimTeX integration
+remains available as a preconfigured profile and example workflow.
 
 ## Requirements
 
@@ -24,8 +24,9 @@ preconfigured profile and example workflow.
 - **Profiles & overrides** – Define reusable configuration profiles and apply
   them per command so each workflow can tweak window geometry, notification
   titles, auto-hide timing, etc.
-- **Snacks-aware UI** – Falls back to `vim.notify` but automatically upgrades to
-  `snacks.notify` when available. You can also provide a custom notifier.
+- **Notifier fallback chain** – Falls back to `vim.notify` but automatically
+  upgrades to `snacks.notify` when available. You can also provide a custom
+  notifier.
 - **VimTeX aware** – Ships the original auto-open, auto-hide, and command suite
   for `latexmk` logs, now powered by the same configurable panel.
 - **Knit helper** – `require("knit.run")` is a zero-dependency runner that
@@ -279,7 +280,7 @@ panel provides:
 | Visual status | Border colours + notifications | Messages only |
 | Buffer type | Scratch, hidden by default | Normal buffer |
 
-Use whichever suits your workflow—the panel simply adds a Snacks-friendly skin
+Use whichever suits your workflow—the panel simply adds a custom floating skin
 on top of VimTeX's reliable compilation backend while now powering any other
 command you want to monitor.
 
