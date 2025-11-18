@@ -283,6 +283,63 @@ Use whichever suits your workflow—the panel simply adds a Snacks-friendly skin
 on top of VimTeX's reliable compilation backend while now powering any other
 command you want to monitor.
 
+## How does this compare to other plugins?
+
+Neovim already offers several ways to run commands asynchronously. The panel
+deliberately fills the gap between a full task manager and raw quickfix output.
+
+### Overseer.nvim
+
+[Overseer](https://github.com/stevearc/overseer.nvim) is the closest feature
+match: it manages a registry of tasks, templates, diagnostics integration, and
+per-task metadata. That power comes at the cost of additional configuration
+(`use_terminal`, component pipelines, task bundles, etc.) and a sizeable UI that
+defaults to a dashboard-style split. If you only ever need to stream a single
+long-running command, output-panel.nvim keeps the UX minimal: no task list, no
+history, just a single scratch buffer that auto-opens on failure/success and can
+be wired directly to VimTeX hooks or ad-hoc shell commands. Overseer can be
+configured to behave similarly, but doing so typically requires writing task
+definitions and tweaking layout settings—effort that outweighs the benefit when
+you only need a “fire-and-forget” pane.
+
+### ToggleTerm and generic terminals
+
+[toggleterm.nvim](https://github.com/akinsho/toggleterm.nvim) (and plain
+`:terminal`) provide real shells. They shine when you want an interactive REPL
+or when a command expects input, but that also means the buffer is stateful: you
+can accidentally send keystrokes to the shell, scrollback is persistent across
+runs, and you have to manually reset the prompt. The output panel is a
+read-only, auto-trimmed buffer that is recreated for every run, so it behaves
+more like an IDE build pane than a terminal emulator.
+
+### Quickfix/location list (asyncrun.vim, vim-dispatch)
+
+Plugins such as [asyncrun.vim](https://github.com/skywind3000/asyncrun.vim) and
+[vim-dispatch](https://github.com/tpope/vim-dispatch) stream output into the
+quickfix list. That is perfect when you want structured error navigation, but it
+comes with trade-offs: multi-line logs are flattened into entries, colouring and
+formatting are lost, and you can easily clobber the quickfix list that LSP or
+other commands rely on. The output panel sidesteps those issues by maintaining a
+separate scratch buffer with optional syntax highlighting while still sending
+success/failure notifications like dispatch.
+
+### Trouble.nvim and diagnostics explorers
+
+[Trouble.nvim](https://github.com/folke/trouble.nvim) and similar explorers
+excel at visualising diagnostics, references, and quickfix/location lists. They
+are intentionally opinionated about structure (severity grouping, jump lists,
+filters), whereas the panel intentionally avoids parsing. Use Trouble when you
+want to triage issues; use the panel when you want the raw log for debugging.
+
+### Noice.nvim and notification UIs
+
+[Noice](https://github.com/folke/noice.nvim) re-skins Neovim’s messages and can
+proxy `vim.notify`, so it compliments output-panel.nvim by rendering the panel’s
+completion notifications. It does not, however, provide an output buffer or task
+runner. If you already run Noice, the panel’s notifier fallback (Snacks →
+`vim.notify`) means your completion alerts will flow through Noice’s UI without
+any special setup.
+
 ## Development
 
 - Format with `stylua lua/`.
