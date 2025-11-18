@@ -1,7 +1,7 @@
 # Contributor Guidance
 
 ## Purpose
-- This repository ships the `output-panel.nvim` module described in [README.md](README.md). Keep every change aligned with the stated goal: provide a commented, well-documented Neovim helper that renders VimTeX compiler output and arbitrary shell logs inside lightweight floating windows. Snacks is optional—treat it purely as a notifier fallback, not as the defining UI layer.
+- This repository ships the `output-panel.nvim` module described in [README.md](README.md). Keep every change aligned with the stated goal: provide a commented, well-documented Neovim helper that renders VimTeX compiler output and arbitrary shell logs inside lightweight floating windows. Snacks support stays optional—a pleasant notifier treat, but never the defining UI layer.
 
 ## Coding Standards
 - Write idiomatic Lua that follows general Neovim and VimTeX best practices, with Snacks integration remaining purely optional.

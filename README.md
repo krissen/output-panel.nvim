@@ -4,7 +4,8 @@ A configurable floating output window for Neovim jobs. The plugin began life as 
 VimTeX helper but now exposes a generic runner so any long-running shell
 command—`Rscript`, `pandoc`, custom build scripts, etc.—can stream their stdout
 and stderr into the same lightweight panel while surfacing success/failure
-notifications (optionally via snacks.nvim). The original VimTeX integration
+notifications, with Snacks support kept as an optional treat for extra polish.
+The original VimTeX integration
 remains available as a preconfigured profile and example workflow.
 
 ## Requirements
@@ -12,7 +13,7 @@ remains available as a preconfigured profile and example workflow.
 - Neovim **0.8+** (`vim.fn.jobstart` powers live streaming; `vim.system`
   integrations kick in automatically when available)
 - [snacks.nvim](https://github.com/folke/snacks.nvim) *(optional)* — richer
-  notifications and theming
+  notifications if you want that extra treat
 - [VimTeX](https://github.com/lervag/vimtex) *(optional)* — only needed if you
   want automatic LaTeX compiler integration
 
@@ -24,9 +25,9 @@ remains available as a preconfigured profile and example workflow.
 - **Profiles & overrides** – Define reusable configuration profiles and apply
   them per command so each workflow can tweak window geometry, notification
   titles, auto-hide timing, etc.
-- **Notifier fallback chain** – Falls back to `vim.notify` but automatically
-  upgrades to `snacks.notify` when available. You can also provide a custom
-  notifier.
+- **Notifier fallback chain** – Works out of the box with `vim.notify`, happily
+  upgrades to `snacks.notify` when available, and accepts any custom notifier you
+  want to plug in.
 - **VimTeX aware** – Ships the original auto-open, auto-hide, and command suite
   for `latexmk` logs, now powered by the same configurable panel.
 - **Knit helper** – `require("knit.run")` is a zero-dependency runner that
@@ -114,8 +115,9 @@ vim.keymap.set("n", "<leader>rk", function()
 end, { desc = "Knit document" })
 ```
 
-Without `output_panel` it falls back to snacks.nvim (or `vim.notify`) messages
-while still respecting the provided titles/timeouts. Use the `panel` table to
+Without `output_panel` it simply routes notifications through the usual fallback
+chain (Snacks first if installed, otherwise `vim.notify`) while still respecting
+the provided titles/timeouts. Use the `panel` table to
 adjust the window when live streaming (e.g. set a dedicated profile, tweak
 layout, or disable `notify_start`).
 
@@ -337,9 +339,9 @@ want to triage issues; use the panel when you want the raw log for debugging.
 [Noice](https://github.com/folke/noice.nvim) re-skins Neovim’s messages and can
 proxy `vim.notify`, so it compliments output-panel.nvim by rendering the panel’s
 completion notifications. It does not, however, provide an output buffer or task
-runner. If you already run Noice, the panel’s notifier fallback (Snacks →
-`vim.notify`) means your completion alerts will flow through Noice’s UI without
-any special setup.
+runner. If you already run Noice, the panel’s notifier fallback (Snacks first if
+present, otherwise `vim.notify`) means your completion alerts flow through Noice
+without any special setup.
 
 ## Development
 
