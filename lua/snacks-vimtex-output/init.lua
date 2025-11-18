@@ -57,6 +57,10 @@ local default_config = {
 local config = vim.deepcopy(default_config)
 M.config = config
 
+local function auto_open_enabled()
+  return not config.auto_open or config.auto_open.enabled ~= false
+end
+
 local state = {
   win = nil,
   buf = nil,
@@ -138,7 +142,6 @@ local function clamp(value, min_value, max_value)
 end
 
 local function current_time()
-  local uv = vim.uv or vim.loop
   if uv and uv.hrtime then
     return uv.hrtime()
   end
@@ -164,9 +167,9 @@ local function format_duration_suffix()
 end
 
 local status_labels = {
-  running = "Bygger",
-  success = "Klar",
-  failure = "Fel",
+  running = "Building",
+  success = "Done",
+  failure = "Error",
 }
 
 local function status_title()
@@ -206,6 +209,7 @@ end
 
 local function close_window(opts)
   opts = opts or {}
+  stop_polling()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -376,6 +380,11 @@ local function start_polling()
   state.timer = timer
   timer:start(0, 250, function()
     vim.schedule(function()
+      local win_open = state.win and vim.api.nvim_win_is_valid(state.win)
+      if not win_open then
+        stop_polling()
+        return
+      end
       if not state.target then
         stop_polling()
         return
@@ -396,7 +405,7 @@ local function ensure_output_ready(opts)
   local target = resolve_target(opts.target, opts.source_buf)
   if not target then
     if not opts.quiet then
-      notify("warn", "VimTeX saknar känt output-spår")
+      notify("warn", "VimTeX does not expose a compiler output log")
     end
     return nil
   end
@@ -464,10 +473,14 @@ end
 
 local function render_window(opts)
   opts = opts or {}
+  local should_poll = opts.poll
+  if should_poll == nil then
+    should_poll = state.status == "running"
+  end
   local buf = ensure_output_ready({
     target = opts.target,
     source_buf = opts.source_buf,
-    poll = opts.poll,
+    poll = should_poll,
     quiet = opts.quiet,
   })
   if not buf then
@@ -603,10 +616,6 @@ local function render_with_retry(opts)
   retry(attempts)
 end
 
-local function format_duration()
-  return format_duration_suffix()
-end
-
 local function event_context(event)
   local buf = event and event.buf and event.buf ~= 0 and event.buf or nil
   local target = compiler_output_path(buf)
@@ -623,20 +632,19 @@ local function on_compile_started(event)
   state.status = "running"
   state.border_hl = config.border_highlight or "FloatBorder"
   state.hide_token = state.hide_token + 1
-  render_with_retry({
-    target = ctx.target,
-    source_buf = ctx.source_buf,
-    poll = true,
-    focus = state.focused,
-    quiet = true,
-    retry_count = (
-      config.auto_open
-      and config.auto_open.enabled ~= false
-      and config.auto_open.retries
-    ) or 0,
-    retry_delay = (config.auto_open and config.auto_open.delay) or 120,
-  })
-  notify("info", "Bygger LaTeX…")
+  local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
+  if auto_open_enabled() or window_exists then
+    render_with_retry({
+      target = ctx.target,
+      source_buf = ctx.source_buf,
+      poll = true,
+      focus = state.focused,
+      quiet = true,
+      retry_count = (config.auto_open and config.auto_open.retries) or 0,
+      retry_delay = (config.auto_open and config.auto_open.delay) or 120,
+    })
+  end
+  notify("info", "LaTeX build started…")
 end
 
 local function on_compile_succeeded(event)
@@ -646,14 +654,17 @@ local function on_compile_succeeded(event)
   state.started_at = nil
   state.status = "success"
   stop_polling()
-  render_window({
-    border_hl = "DiagnosticOk",
-    target = ctx.target,
-    source_buf = ctx.source_buf,
-    focus = state.focused,
-  })
-  notify("info", "LaTeX-bygget klart" .. format_duration())
-  schedule_hide(config.auto_hide and config.auto_hide.delay)
+  local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
+  if auto_open_enabled() or window_exists then
+    render_window({
+      border_hl = "DiagnosticOk",
+      target = ctx.target,
+      source_buf = ctx.source_buf,
+      focus = state.focused,
+    })
+    schedule_hide(config.auto_hide and config.auto_hide.delay)
+  end
+  notify("info", "LaTeX build finished" .. format_duration_suffix())
 end
 
 local function on_compile_failed(event)
@@ -664,13 +675,16 @@ local function on_compile_failed(event)
   state.status = "failure"
   stop_polling()
   state.hide_token = state.hide_token + 1
-  render_window({
-    border_hl = "DiagnosticError",
-    target = ctx.target,
-    source_buf = ctx.source_buf,
-    focus = state.focused,
-  })
-  notify("error", "LaTeX-bygget misslyckades" .. format_duration(), {
+  local window_exists = state.win and vim.api.nvim_win_is_valid(state.win)
+  if auto_open_enabled() or window_exists then
+    render_window({
+      border_hl = "DiagnosticError",
+      target = ctx.target,
+      source_buf = ctx.source_buf,
+      focus = state.focused,
+    })
+  end
+  notify("error", "LaTeX build failed" .. format_duration_suffix(), {
     timeout = false,
     keep = true,
   })
