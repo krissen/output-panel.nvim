@@ -59,6 +59,10 @@ local default_config = {
   follow = {
     enabled = true,
   },
+  -- Frequency (milliseconds) for polling the log file while the panel is open
+  poll = {
+    interval = 150,
+  },
   max_lines = 4000,
   open_on_error = true,
   profiles = {},
@@ -523,6 +527,15 @@ local function update_buffer_from_file(force)
   return true
 end
 
+-- Resolve the polling interval for log refreshes (in milliseconds). Users can
+-- lower it for snappier updates or raise it to reduce timer churn.
+local function poll_interval_ms()
+  local cfg = current_config()
+  local poll = cfg.poll or {}
+  local interval = poll.interval or 150
+  return math.max(16, interval)
+end
+
 -- Keep a lightweight polling loop running while the overlay is visible so the
 -- buffer stays in sync with latexmk's stdout and the title timer keeps
 -- updating. The timer exits automatically when the floating window disappears
@@ -534,7 +547,7 @@ local function start_polling()
   end
   local timer = uv.new_timer()
   state.timer = timer
-  timer:start(0, 250, function()
+  timer:start(0, poll_interval_ms(), function()
     vim.schedule(function()
       local win_open = state.win and vim.api.nvim_win_is_valid(state.win)
       if not win_open then

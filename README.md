@@ -202,6 +202,9 @@ require("output-panel").setup({
   follow = {
     enabled = true,
   },
+  poll = {
+    interval = 150,
+  },
   max_lines = 4000,
   open_on_error = true,
   notifier = nil,
@@ -215,6 +218,9 @@ require("output-panel").setup({
 ```
 
 `follow.enabled` keeps the panel in tail/follow mode whenever it's opened.
+`poll.interval` controls how often (in milliseconds) the plugin refreshes the
+log buffer while the window is visible—lower values update faster but run the
+timer more frequently.
 Toggle it ad-hoc via `:VimtexOutputToggleFollow` (or
 `require("output-panel").toggle_follow()`). `max_lines` trims the scratch buffer
 so very chatty commands never retain more than the configured line count, and
