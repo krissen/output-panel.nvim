@@ -44,7 +44,15 @@ If you prefer another notifier (such as `noice.nvim` or a custom callback), pass
 
 ## Usage
 
-Run `require("snacks-vimtex-output").setup()` once (e.g., inside your plugin manager config). After that the overlay opens automatically when VimTeX starts compiling, streams log updates while the build is running, and closes itself a few seconds after a successful compile. Failures stay visible until dismissed.
+Run `require("snacks-vimtex-output").setup()` once (e.g., inside your plugin manager config).
+
+### Out-of-the-box behavior
+
+- The overlay automatically attaches to VimTeX builds: it opens when a compile starts, streams live log output, and hides itself a short time after success.
+- Failed builds stay visible until you manually close them so you can read the error trace.
+- Notifications mirror each build status without any additional configuration.
+
+### Manual control
 
 The module exposes helpers you may call directly if you want to wire custom logic:
 
