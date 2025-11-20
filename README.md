@@ -223,6 +223,11 @@ require("output-panel").setup({
 })
 ```
 
+While the mini overlay is visible, the plugin raises `scrolloff` to at least
+the panel height plus `scrolloff_margin`, reapplying that padding if you adjust
+`scrolloff` manually. Your original `scrolloff` is restored whenever the panel
+closes or you enter focus mode.
+
 `follow.enabled` keeps the panel in tail/follow mode whenever it's opened.
 `poll.interval` controls how often (in milliseconds) the plugin refreshes the
 log buffer while the window is visible—lower values update faster but run the
