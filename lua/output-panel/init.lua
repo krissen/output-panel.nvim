@@ -98,6 +98,8 @@ local state = {
   prev_win = nil,
   border_hl = config.border_highlight,
   scrolloff_restore = nil,
+  scrolloff_guard = nil,
+  scrolloff_needed = nil,
   render_retry_token = 0,
   last_close_reason = nil,
   augroup = nil,
@@ -107,6 +109,10 @@ local state = {
   active_config = nil,
   job = nil,
 }
+
+-- Forward-declare scrolloff guard helpers so window teardown and cursor guards can share them.
+local clear_scrolloff_guard
+local enforce_scrolloff_guard
 
 -- Attempt to dismiss a previously shown notification entry regardless of the
 -- backend. Prefers any backend-provided `hide` callback, then falls back to
@@ -456,6 +462,7 @@ end
 local function close_window(opts)
   opts = opts or {}
   stop_polling()
+  clear_scrolloff_guard()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -798,11 +805,60 @@ local function window_dimensions(focused)
   return width, height, row, col
 end
 
+-- Clear any active scrolloff guard autocmds so option tweaks outside the overlay stop being rewritten.
+local function clear_scrolloff_guard()
+  if state.scrolloff_guard then
+    pcall(vim.api.nvim_del_augroup_by_id, state.scrolloff_guard)
+    state.scrolloff_guard = nil
+  end
+  state.scrolloff_needed = nil
+end
+
+-- Enforce a minimum scrolloff while the mini overlay is visible, and reapply it if users change the option.
+-- Stores the original scrolloff once so the value can be restored when the panel closes or enters focus mode.
+local function enforce_scrolloff_guard(needed)
+  if needed <= 0 then
+    clear_scrolloff_guard()
+    return
+  end
+  state.scrolloff_needed = needed
+  if state.scrolloff_restore == nil then
+    state.scrolloff_restore = vim.o.scrolloff
+  end
+  if vim.o.scrolloff < needed then
+    vim.o.scrolloff = needed
+  end
+  local group = state.scrolloff_guard
+  if group == nil then
+    group = vim.api.nvim_create_augroup("output_panel_scrolloff", { clear = true })
+    state.scrolloff_guard = group
+  else
+    pcall(vim.api.nvim_clear_autocmds, { group = group })
+  end
+  vim.api.nvim_create_autocmd("OptionSet", {
+    group = group,
+    pattern = "scrolloff",
+    callback = function()
+      local guard_needed = state.scrolloff_needed or 0
+      if guard_needed <= 0 then
+        return
+      end
+      if not state.win or not vim.api.nvim_win_is_valid(state.win) or state.focused then
+        return
+      end
+      if vim.o.scrolloff < guard_needed then
+        vim.o.scrolloff = guard_needed
+      end
+    end,
+  })
+end
+
 -- Temporarily increase scrolloff in mini mode to prevent the overlay from covering the cursor.
 -- In focus mode, the user controls cursor position, so we restore the original scrolloff.
 -- This ensures the cursor always has enough padding when typing while the mini overlay is visible.
 local function apply_cursor_guard(height, focused)
   if focused then
+    clear_scrolloff_guard()
     -- Restore original scrolloff when entering focus mode
     if state.scrolloff_restore ~= nil then
       vim.o.scrolloff = state.scrolloff_restore
@@ -817,14 +873,8 @@ local function apply_cursor_guard(height, focused)
   if needed == 0 then
     return
   end
-  -- Save original scrolloff only once (when first showing mini overlay)
-  if state.scrolloff_restore == nil then
-    state.scrolloff_restore = vim.o.scrolloff
-  end
-  -- Increase scrolloff if current value is too small
-  if vim.o.scrolloff < needed then
-    vim.o.scrolloff = needed
-  end
+  -- Save and enforce scrolloff whenever the mini overlay is visible, reapplying if the user changes the option.
+  enforce_scrolloff_guard(needed)
 end
 
 local function render_window(opts)
