@@ -135,6 +135,9 @@ still available:
 | `:VimtexOutputToggleFocus` | Switch between mini/focus layouts. |
 | `:VimtexOutputToggleFollow` | Toggle follow/tail mode. |
 
+Press `<Esc>` while focused to drop back to the compact mini overlay without closing
+the panel.
+
 The overlay attaches to VimTeX's compiler log (usually the `latexmk` stdout
 buffer) and retains all prior behaviours—auto-open on compilation, optional
 auto-hide on success, green/red borders, and persistent error notifications.

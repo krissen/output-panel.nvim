@@ -614,6 +614,23 @@ local function scroll_to_bottom()
   pcall(vim.api.nvim_win_set_cursor, state.win, { line_count, 0 })
 end
 
+-- Attach or clear buffer-local keymaps used exclusively in focus mode so users can
+-- quickly shrink the panel without closing it entirely.
+local function apply_focus_keymaps(buf, focused)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  -- Always clear stale mappings first to avoid stacking duplicate handlers.
+  pcall(vim.keymap.del, "n", "<Esc>", { buffer = buf })
+  if not focused then
+    return
+  end
+  -- Map <Esc> to drop back to the mini overlay from the focused view.
+  vim.keymap.set("n", "<Esc>", function()
+    M.toggle_focus()
+  end, { buffer = buf, silent = true, desc = "Return output-panel to mini mode" })
+end
+
 local function update_buffer_from_file(force)
   local target = state.target
   if not target then
@@ -857,6 +874,7 @@ local function render_window(opts)
     restore_previous_window()
   end
 
+  apply_focus_keymaps(buf, desired_focus)
   apply_cursor_guard(height, desired_focus)
   state.focused = desired_focus
   refresh_window_title()
@@ -1126,10 +1144,7 @@ function M.run(opts)
         schedule_hide(cfg.auto_hide and cfg.auto_hide.delay)
       end
       clear_failure_notification(command_failure_scope(state.job))
-      notify(
-        "info",
-        (opts.success or (job_title .. " finished")) .. format_duration_suffix()
-      )
+      notify("info", (opts.success or (job_title .. " finished")) .. format_duration_suffix())
     else
       state.status = "failure"
       state.border_hl = "DiagnosticError"
