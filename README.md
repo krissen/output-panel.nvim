@@ -273,6 +273,8 @@ This applies everywhere—VimTeX events and manual command runs.
 - Bump `scrolloff_margin` if the mini panel covers your cursor.
 - Set `auto_open.enabled = true` to auto-pop the panel whenever VimTeX begins
   compiling.
+- Disable `auto_open` inside specific profiles to keep background commands from
+  popping the overlay.
 - Disable `auto_hide` globally or per profile if you want successful runs to
   stay visible.
 - Toggle follow mode with `:OutputPanelToggleFollow` (alias:
