@@ -874,9 +874,6 @@ local function window_dimensions(focused)
   return width, height, row, col, anchor, layout
 end
 
--- Temporarily increase scrolloff in mini mode to prevent the overlay from covering the cursor.
--- In focus mode, the user controls cursor position, so we restore the original scrolloff.
--- This ensures the cursor always has enough padding when typing while the mini overlay is visible.
 local function apply_cursor_guard(height, focused)
   if focused then
     clear_scrolloff_guard()
@@ -900,13 +897,16 @@ local function apply_cursor_guard(height, focused)
 end
 
 -- Check if the overlay would cover the cursor in the current editor grid.
--- This guards against situations near buffer edges where scrolloff alone cannot prevent overlap.
-local function overlay_covers_cursor(row, height)
+-- Padding lets callers trigger an early flip before the overlay touches the cursor.
+local function overlay_covers_cursor(row, height, padding)
   local cursor_row = cursor_grid_row()
   if not cursor_row then
     return false
   end
-  return cursor_row >= row and cursor_row < row + height
+  local margin = math.max(padding or 0, 0)
+  local top = row - margin
+  local bottom = row + height + margin
+  return cursor_row >= top and cursor_row < bottom
 end
 
 -- Shift the overlay anchor when the default position would obscure the cursor.
@@ -914,6 +914,11 @@ end
 -- the overlay just beyond the cursor with the configured scrolloff margin.
 local function adjust_overlay_anchor(height, anchor, layout)
   local lines = vim.o.lines
+  local cfg = current_config()
+  -- Respect the configured scrolloff margin so we reposition before the overlay
+  -- encroaches on the user's visible cursor region.
+  local margin = cfg.scrolloff_margin or 1
+  local padding = math.max(margin, 0)
   local function anchor_row(target_anchor)
     local row_offset = layout.row_offset or 0
     local row
@@ -928,18 +933,16 @@ local function adjust_overlay_anchor(height, anchor, layout)
   end
 
   local row = anchor_row(anchor)
-  if not overlay_covers_cursor(row, height) then
+  if not overlay_covers_cursor(row, height, padding) then
     return row, anchor
   end
 
   local opposite = anchor == "top" and "bottom" or "top"
   local opposite_row = anchor_row(opposite)
-  if not overlay_covers_cursor(opposite_row, height) then
+  if not overlay_covers_cursor(opposite_row, height, padding) then
     return opposite_row, opposite
   end
 
-  local cfg = current_config()
-  local margin = cfg.scrolloff_margin or 1
   local cursor_row = cursor_grid_row()
   if not cursor_row then
     return row, anchor
