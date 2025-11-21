@@ -429,6 +429,16 @@ local function current_time()
   return nil
 end
 
+-- Return the cursor row in global editor coordinates so we can align floats
+-- without covering the active line, even when the current window is offset by splits.
+local function cursor_grid_row()
+  local ok, win_pos = pcall(vim.api.nvim_win_get_position, 0)
+  if not ok or not win_pos then
+    return nil
+  end
+  return win_pos[1] + (vim.fn.winline() - 1)
+end
+
 local function elapsed_seconds()
   if state.status == "running" and state.started_at then
     local now = current_time()
@@ -849,7 +859,7 @@ local function window_dimensions(focused)
   end
   row = clamp(row, 0, math.max(0, lines - height))
 
-  return width, height, row, col
+  return width, height, row, col, anchor, layout
 end
 
 -- Temporarily increase scrolloff in mini mode to prevent the overlay from covering the cursor.
@@ -874,6 +884,69 @@ local function apply_cursor_guard(height, focused)
   end
   -- Save and enforce scrolloff whenever the mini overlay is visible, reapplying if the user changes the option.
   enforce_scrolloff_guard(needed)
+end
+
+-- Check if the overlay would cover the cursor in the current editor grid.
+-- This guards against situations near buffer edges where scrolloff alone cannot prevent overlap.
+local function overlay_covers_cursor(row, height)
+  local cursor_row = cursor_grid_row()
+  if not cursor_row then
+    return false
+  end
+  return cursor_row >= row and cursor_row < row + height
+end
+
+-- Shift the overlay anchor when the default position would obscure the cursor.
+-- Tries the opposite anchor first (top vs bottom), then falls back to nudging
+-- the overlay just beyond the cursor with the configured scrolloff margin.
+local function adjust_overlay_anchor(height, anchor, layout)
+  local lines = vim.o.lines
+  local function anchor_row(target_anchor)
+    local row_offset = layout.row_offset or 0
+    local row
+    if target_anchor == "top" then
+      row = row_offset
+    elseif target_anchor == "center" then
+      row = math.floor((lines - height) / 2) + row_offset
+    else
+      row = lines - height - row_offset
+    end
+    return clamp(row, 0, math.max(0, lines - height))
+  end
+
+  local row = anchor_row(anchor)
+  if not overlay_covers_cursor(row, height) then
+    return row, anchor
+  end
+
+  local opposite = anchor == "top" and "bottom" or "top"
+  local opposite_row = anchor_row(opposite)
+  if not overlay_covers_cursor(opposite_row, height) then
+    return opposite_row, opposite
+  end
+
+  local cfg = current_config()
+  local margin = cfg.scrolloff_margin or 1
+  local cursor_row = cursor_grid_row()
+  if not cursor_row then
+    return row, anchor
+  end
+
+  local space_above = cursor_row
+  local space_below = math.max(0, (lines - 1) - cursor_row)
+  local max_row = math.max(0, lines - height)
+
+  if space_above >= space_below then
+    -- Prefer stacking the overlay above the cursor when there is more room upwards.
+    local target_bottom = cursor_row - margin - 1
+    local nudged_row = clamp(target_bottom - height + 1, 0, max_row)
+    return nudged_row, "top"
+  end
+
+  -- Otherwise place it below the cursor and leave a small gap.
+  local target_top = cursor_row + margin + 1
+  local nudged_row = clamp(target_top, 0, max_row)
+  return nudged_row, "bottom"
 end
 
 local function render_window(opts)
@@ -906,7 +979,10 @@ local function render_window(opts)
     end
   end
 
-  local width, height, row, col = window_dimensions(desired_focus)
+  local width, height, row, col, anchor, layout = window_dimensions(desired_focus)
+  if not desired_focus then
+    row, anchor = adjust_overlay_anchor(height, anchor, layout)
+  end
   local win_config = {
     relative = "editor",
     width = width,
