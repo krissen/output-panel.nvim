@@ -19,6 +19,7 @@ local default_config = {
     height_max = 14,
     row_anchor = "bottom",
     row_offset = 5,
+    flip_row_offset = 0,
     horizontal_align = 0.55,
     col_offset = 0,
     avoid_cursor = true,
@@ -919,8 +920,20 @@ local function adjust_overlay_anchor(height, anchor, layout)
   -- encroaches on the user's visible cursor region.
   local margin = cfg.scrolloff_margin or 1
   local padding = math.max(margin, 0)
+  -- Preserve familiar spacing when flipping the anchor by using a dedicated
+  -- offset for the alternate edge instead of reusing the default row_offset
+  -- (which is typically tuned for the preferred anchor only).
+  local function anchor_offset(target_anchor)
+    if target_anchor == layout.row_anchor then
+      return layout.row_offset or 0
+    end
+    if layout.flip_row_offset ~= nil then
+      return layout.flip_row_offset
+    end
+    return layout.row_offset or 0
+  end
   local function anchor_row(target_anchor)
-    local row_offset = layout.row_offset or 0
+    local row_offset = anchor_offset(target_anchor)
     local row
     if target_anchor == "top" then
       row = row_offset
