@@ -19,8 +19,10 @@ local default_config = {
     height_max = 14,
     row_anchor = "bottom",
     row_offset = 5,
+    flip_row_offset = 0,
     horizontal_align = 0.55,
     col_offset = 0,
+    avoid_cursor = true,
   },
   -- Dimensions for the focused/interactive overlay
   focus = {
@@ -100,6 +102,7 @@ local state = {
   scrolloff_restore = nil,
   scrolloff_guard = nil,
   scrolloff_needed = nil,
+  mini_anchor_guard = nil,
   render_retry_token = 0,
   last_close_reason = nil,
   augroup = nil,
@@ -110,9 +113,65 @@ local state = {
   job = nil,
 }
 
--- Forward-declare scrolloff guard helpers so window teardown and cursor guards can share them.
-local clear_scrolloff_guard
-local enforce_scrolloff_guard
+-- Clear any active scrolloff guard autocmds and stop enforcing the minimum scrolloff requirement.
+local function clear_scrolloff_guard()
+  if state.scrolloff_guard then
+    pcall(vim.api.nvim_del_augroup_by_id, state.scrolloff_guard)
+    state.scrolloff_guard = nil
+  end
+  state.scrolloff_needed = nil
+end
+
+-- Remove the mini overlay anchor guard autocmds that keep the float away from the cursor.
+-- Called whenever the overlay closes or switches to focus mode so we avoid stale handlers.
+local function clear_mini_anchor_guard()
+  if state.mini_anchor_guard then
+    pcall(vim.api.nvim_del_augroup_by_id, state.mini_anchor_guard)
+    state.mini_anchor_guard = nil
+  end
+end
+
+-- Enforce a minimum scrolloff while the mini overlay is visible, and reapply it if users change the option.
+-- Stores the original scrolloff once so the value can be restored when the panel closes or enters focus mode.
+local function enforce_scrolloff_guard(needed)
+  if needed <= 0 then
+    clear_scrolloff_guard()
+    return
+  end
+  state.scrolloff_needed = needed
+  if state.scrolloff_restore == nil then
+    state.scrolloff_restore = vim.o.scrolloff
+  end
+  if vim.o.scrolloff < needed then
+    vim.o.scrolloff = needed
+  end
+  local group = state.scrolloff_guard
+  if group == nil then
+    group = vim.api.nvim_create_augroup("output_panel_scrolloff_guard", { clear = true })
+    state.scrolloff_guard = group
+  else
+    pcall(vim.api.nvim_clear_autocmds, { group = group })
+  end
+  vim.api.nvim_create_autocmd("OptionSet", {
+    group = group,
+    pattern = "scrolloff",
+    callback = function()
+      if state.scrolloff_guard ~= group then
+        return
+      end
+      local guard_needed = state.scrolloff_needed
+      if guard_needed == nil or guard_needed <= 0 then
+        return
+      end
+      if not state.win or not vim.api.nvim_win_is_valid(state.win) or state.focused then
+        return
+      end
+      if vim.o.scrolloff < guard_needed then
+        vim.o.scrolloff = guard_needed
+      end
+    end,
+  })
+end
 
 -- Attempt to dismiss a previously shown notification entry regardless of the
 -- backend. Prefers any backend-provided `hide` callback, then falls back to
@@ -382,6 +441,16 @@ local function current_time()
   return nil
 end
 
+-- Return the cursor row in global editor coordinates so we can align floats
+-- without covering the active line, even when the current window is offset by splits.
+local function cursor_grid_row()
+  local ok, win_pos = pcall(vim.api.nvim_win_get_position, 0)
+  if not ok or not win_pos then
+    return nil
+  end
+  return win_pos[1] + (vim.fn.winline() - 1)
+end
+
 local function elapsed_seconds()
   if state.status == "running" and state.started_at then
     local now = current_time()
@@ -463,6 +532,7 @@ local function close_window(opts)
   opts = opts or {}
   stop_polling()
   clear_scrolloff_guard()
+  clear_mini_anchor_guard()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -802,66 +872,13 @@ local function window_dimensions(focused)
   end
   row = clamp(row, 0, math.max(0, lines - height))
 
-  return width, height, row, col
+  return width, height, row, col, anchor, layout
 end
 
--- Clear any active scrolloff guard autocmds and stop enforcing the minimum scrolloff requirement.
-local function clear_scrolloff_guard()
-  if state.scrolloff_guard then
-    pcall(vim.api.nvim_del_augroup_by_id, state.scrolloff_guard)
-    state.scrolloff_guard = nil
-  end
-  state.scrolloff_needed = nil
-end
-
--- Enforce a minimum scrolloff while the mini overlay is visible, and reapply it if users change the option.
--- Stores the original scrolloff once so the value can be restored when the panel closes or enters focus mode.
-local function enforce_scrolloff_guard(needed)
-  if needed <= 0 then
-    clear_scrolloff_guard()
-    return
-  end
-  state.scrolloff_needed = needed
-  if state.scrolloff_restore == nil then
-    state.scrolloff_restore = vim.o.scrolloff
-  end
-  if vim.o.scrolloff < needed then
-    vim.o.scrolloff = needed
-  end
-  local group = state.scrolloff_guard
-  if group == nil then
-    group = vim.api.nvim_create_augroup("output_panel_scrolloff_guard", { clear = true })
-    state.scrolloff_guard = group
-  else
-    pcall(vim.api.nvim_clear_autocmds, { group = group })
-  end
-  vim.api.nvim_create_autocmd("OptionSet", {
-    group = group,
-    pattern = "scrolloff",
-    callback = function()
-      if state.scrolloff_guard ~= group then
-        return
-      end
-      local guard_needed = state.scrolloff_needed
-      if guard_needed == nil or guard_needed <= 0 then
-        return
-      end
-      if not state.win or not vim.api.nvim_win_is_valid(state.win) or state.focused then
-        return
-      end
-      if vim.o.scrolloff < guard_needed then
-        vim.o.scrolloff = guard_needed
-      end
-    end,
-  })
-end
-
--- Temporarily increase scrolloff in mini mode to prevent the overlay from covering the cursor.
--- In focus mode, the user controls cursor position, so we restore the original scrolloff.
--- This ensures the cursor always has enough padding when typing while the mini overlay is visible.
 local function apply_cursor_guard(height, focused)
   if focused then
     clear_scrolloff_guard()
+    clear_mini_anchor_guard()
     -- Restore original scrolloff when entering focus mode
     if state.scrolloff_restore ~= nil then
       vim.o.scrolloff = state.scrolloff_restore
@@ -878,6 +895,139 @@ local function apply_cursor_guard(height, focused)
   end
   -- Save and enforce scrolloff whenever the mini overlay is visible, reapplying if the user changes the option.
   enforce_scrolloff_guard(needed)
+end
+
+-- Check if the overlay would cover the cursor in the current editor grid.
+-- Padding lets callers trigger an early flip before the overlay touches the cursor.
+local function overlay_covers_cursor(row, height, padding)
+  local cursor_row = cursor_grid_row()
+  if not cursor_row then
+    return false
+  end
+  local margin = math.max(padding or 0, 0)
+  local top = row - margin
+  local bottom = row + height + margin
+  return cursor_row >= top and cursor_row < bottom
+end
+
+-- Shift the overlay anchor when the default position would obscure the cursor.
+-- Tries the opposite anchor first (top vs bottom), then falls back to nudging
+-- the overlay just beyond the cursor with the configured scrolloff margin.
+local function adjust_overlay_anchor(height, anchor, layout)
+  local lines = vim.o.lines
+  local cfg = current_config()
+  -- Respect the configured scrolloff margin so we reposition before the overlay
+  -- encroaches on the user's visible cursor region.
+  local margin = cfg.scrolloff_margin or 1
+  local padding = math.max(margin, 0)
+  -- Preserve familiar spacing when flipping the anchor by using a dedicated
+  -- offset for the alternate edge instead of reusing the default row_offset
+  -- (which is typically tuned for the preferred anchor only).
+  local function anchor_offset(target_anchor)
+    if target_anchor == layout.row_anchor then
+      return layout.row_offset or 0
+    end
+    if layout.flip_row_offset ~= nil then
+      return layout.flip_row_offset
+    end
+    return layout.row_offset or 0
+  end
+  local function anchor_row(target_anchor)
+    local row_offset = anchor_offset(target_anchor)
+    local row
+    if target_anchor == "top" then
+      row = row_offset
+    elseif target_anchor == "center" then
+      row = math.floor((lines - height) / 2) + row_offset
+    else
+      row = lines - height - row_offset
+    end
+    return clamp(row, 0, math.max(0, lines - height))
+  end
+
+  local row = anchor_row(anchor)
+  if not overlay_covers_cursor(row, height, padding) then
+    return row, anchor
+  end
+
+  local opposite = anchor == "top" and "bottom" or "top"
+  local opposite_row = anchor_row(opposite)
+  if not overlay_covers_cursor(opposite_row, height, padding) then
+    return opposite_row, opposite
+  end
+
+  local cursor_row = cursor_grid_row()
+  if not cursor_row then
+    return row, anchor
+  end
+
+  local space_above = cursor_row
+  local space_below = math.max(0, (lines - 1) - cursor_row)
+  local max_row = math.max(0, lines - height)
+
+  if space_above >= space_below then
+    -- Prefer stacking the overlay above the cursor when there is more room upwards.
+    local target_bottom = cursor_row - margin - 1
+    local nudged_row = clamp(target_bottom - height + 1, 0, max_row)
+    return nudged_row, "top"
+  end
+
+  -- Otherwise place it below the cursor and leave a small gap.
+  local target_top = cursor_row + margin + 1
+  local nudged_row = clamp(target_top, 0, max_row)
+  return nudged_row, "bottom"
+end
+
+-- Recompute the mini overlay position when the cursor moves so the float never hides the active line.
+local function refresh_mini_overlay()
+  if not state.win or not vim.api.nvim_win_is_valid(state.win) or state.focused then
+    clear_mini_anchor_guard()
+    return
+  end
+
+  local width, height, row, col, anchor, layout = window_dimensions(false)
+  if layout.avoid_cursor ~= false then
+    row, anchor = adjust_overlay_anchor(height, anchor, layout)
+  end
+
+  local win_config = {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    border = "rounded",
+    focusable = false,
+    style = "minimal",
+    title = status_title(),
+  }
+  vim.api.nvim_win_set_config(state.win, win_config)
+  apply_cursor_guard(height, false)
+end
+
+-- Track cursor movement while the mini overlay is visible so we can flip or nudge it dynamically.
+-- Disabled when users opt out via `mini.avoid_cursor = false` or when the overlay enters focus mode.
+local function ensure_mini_anchor_guard(layout)
+  if not layout or layout.avoid_cursor == false then
+    clear_mini_anchor_guard()
+    return
+  end
+  if state.focused then
+    clear_mini_anchor_guard()
+    return
+  end
+  local group = state.mini_anchor_guard
+  if group == nil then
+    group = vim.api.nvim_create_augroup("output_panel_mini_anchor_guard", { clear = true })
+    state.mini_anchor_guard = group
+  else
+    pcall(vim.api.nvim_clear_autocmds, { group = group })
+  end
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "WinResized" }, {
+    group = group,
+    callback = refresh_mini_overlay,
+  })
+  refresh_mini_overlay()
 end
 
 local function render_window(opts)
@@ -910,7 +1060,14 @@ local function render_window(opts)
     end
   end
 
-  local width, height, row, col = window_dimensions(desired_focus)
+  local width, height, row, col, anchor, layout = window_dimensions(desired_focus)
+  if not desired_focus then
+    if layout.avoid_cursor ~= false then
+      row, anchor = adjust_overlay_anchor(height, anchor, layout)
+    else
+      clear_mini_anchor_guard()
+    end
+  end
   local win_config = {
     relative = "editor",
     width = width,
@@ -965,6 +1122,7 @@ local function render_window(opts)
   state.focused = desired_focus
   refresh_window_title()
   if not desired_focus then
+    ensure_mini_anchor_guard(layout)
     scroll_to_bottom()
   end
   if should_poll then
@@ -1107,9 +1265,16 @@ local function create_stream_session(opts)
   state.hide_token = state.hide_token + 1
   state.render_retry_token = state.render_retry_token + 1
 
-  -- Prefer an explicit `open` override, then fall back to profile auto-open, and
-  -- default to showing the panel when neither is provided.
-  local open_panel = opts.open ~= nil and opts.open or override_auto_open_enabled or true
+  -- Prefer an explicit `open` override, then fall back to profile auto-open when
+  -- provided, and default to showing the panel when neither is provided.
+  local open_panel
+  if opts.open ~= nil then
+    open_panel = opts.open
+  elseif override_auto_open_enabled ~= nil then
+    open_panel = override_auto_open_enabled
+  else
+    open_panel = true
+  end
   if open_panel then
     render_window({
       target = log_path,

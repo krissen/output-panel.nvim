@@ -176,8 +176,10 @@ require("output-panel").setup({
     height_max = 14,
     row_anchor = "bottom",
     row_offset = 5,
+    flip_row_offset = 0,
     horizontal_align = 0.55,
     col_offset = 0,
+    avoid_cursor = true,
   },
   focus = {
     width_scale = 0.95,
@@ -271,8 +273,14 @@ This applies everywhere—VimTeX events and manual command runs.
 
 - Increase `mini.height_ratio` or `mini.height_max` if your commands are chatty.
 - Bump `scrolloff_margin` if the mini panel covers your cursor.
+- The mini overlay will flip to the opposite edge if it would hide your cursor.
+  Disable this by setting `mini.avoid_cursor = false` if you prefer it to stay put near the start or end of a buffer.
+- Tune `mini.flip_row_offset` if you want a different gap when the overlay flips
+  to the opposite edge (defaults to no gap when flipped).
 - Set `auto_open.enabled = true` to auto-pop the panel whenever VimTeX begins
   compiling.
+- Disable `auto_open` inside specific profiles to keep background commands from
+  popping the overlay.
 - Disable `auto_hide` globally or per profile if you want successful runs to
   stay visible.
 - Toggle follow mode with `:OutputPanelToggleFollow` (alias:
