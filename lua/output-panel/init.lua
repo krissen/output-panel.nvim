@@ -21,6 +21,7 @@ local default_config = {
     row_offset = 5,
     horizontal_align = 0.55,
     col_offset = 0,
+    avoid_cursor = true,
   },
   -- Dimensions for the focused/interactive overlay
   focus = {
@@ -100,6 +101,7 @@ local state = {
   scrolloff_restore = nil,
   scrolloff_guard = nil,
   scrolloff_needed = nil,
+  mini_anchor_guard = nil,
   render_retry_token = 0,
   last_close_reason = nil,
   augroup = nil,
@@ -117,6 +119,15 @@ local function clear_scrolloff_guard()
     state.scrolloff_guard = nil
   end
   state.scrolloff_needed = nil
+end
+
+-- Remove the mini overlay anchor guard autocmds that keep the float away from the cursor.
+-- Called whenever the overlay closes or switches to focus mode so we avoid stale handlers.
+local function clear_mini_anchor_guard()
+  if state.mini_anchor_guard then
+    pcall(vim.api.nvim_del_augroup_by_id, state.mini_anchor_guard)
+    state.mini_anchor_guard = nil
+  end
 end
 
 -- Enforce a minimum scrolloff while the mini overlay is visible, and reapply it if users change the option.
@@ -520,6 +531,7 @@ local function close_window(opts)
   opts = opts or {}
   stop_polling()
   clear_scrolloff_guard()
+  clear_mini_anchor_guard()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -868,6 +880,7 @@ end
 local function apply_cursor_guard(height, focused)
   if focused then
     clear_scrolloff_guard()
+    clear_mini_anchor_guard()
     -- Restore original scrolloff when entering focus mode
     if state.scrolloff_restore ~= nil then
       vim.o.scrolloff = state.scrolloff_restore
@@ -949,6 +962,58 @@ local function adjust_overlay_anchor(height, anchor, layout)
   return nudged_row, "bottom"
 end
 
+-- Recompute the mini overlay position when the cursor moves so the float never hides the active line.
+local function refresh_mini_overlay()
+  if not state.win or not vim.api.nvim_win_is_valid(state.win) or state.focused then
+    clear_mini_anchor_guard()
+    return
+  end
+
+  local width, height, row, col, anchor, layout = window_dimensions(false)
+  if layout.avoid_cursor ~= false then
+    row, anchor = adjust_overlay_anchor(height, anchor, layout)
+  end
+
+  local win_config = {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    border = "rounded",
+    focusable = false,
+    style = "minimal",
+    title = status_title(),
+  }
+  vim.api.nvim_win_set_config(state.win, win_config)
+  apply_cursor_guard(height, false)
+end
+
+-- Track cursor movement while the mini overlay is visible so we can flip or nudge it dynamically.
+-- Disabled when users opt out via `mini.avoid_cursor = false` or when the overlay enters focus mode.
+local function ensure_mini_anchor_guard(layout)
+  if not layout or layout.avoid_cursor == false then
+    clear_mini_anchor_guard()
+    return
+  end
+  if state.focused then
+    clear_mini_anchor_guard()
+    return
+  end
+  local group = state.mini_anchor_guard
+  if group == nil then
+    group = vim.api.nvim_create_augroup("output_panel_mini_anchor_guard", { clear = true })
+    state.mini_anchor_guard = group
+  else
+    pcall(vim.api.nvim_clear_autocmds, { group = group })
+  end
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "WinResized" }, {
+    group = group,
+    callback = refresh_mini_overlay,
+  })
+  refresh_mini_overlay()
+end
+
 local function render_window(opts)
   opts = opts or {}
   local should_poll = opts.poll
@@ -981,7 +1046,11 @@ local function render_window(opts)
 
   local width, height, row, col, anchor, layout = window_dimensions(desired_focus)
   if not desired_focus then
-    row, anchor = adjust_overlay_anchor(height, anchor, layout)
+    if layout.avoid_cursor ~= false then
+      row, anchor = adjust_overlay_anchor(height, anchor, layout)
+    else
+      clear_mini_anchor_guard()
+    end
   end
   local win_config = {
     relative = "editor",
@@ -1037,6 +1106,7 @@ local function render_window(opts)
   state.focused = desired_focus
   refresh_window_title()
   if not desired_focus then
+    ensure_mini_anchor_guard(layout)
     scroll_to_bottom()
   end
   if should_poll then
