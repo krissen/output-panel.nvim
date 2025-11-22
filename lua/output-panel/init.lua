@@ -617,7 +617,7 @@ end
 local function resolve_target(path, source_buf)
   local normalized = set_target(path)
   if normalized then
-    remember_buffer_target(source_buf, normalized)
+    remember_buffer_target(source_buf, normalized, (state.job and state.job.kind) or "command")
     return normalized
   end
   local from_source = compiler_output_path(source_buf)
@@ -656,11 +656,7 @@ local function buffer_target_for(bufnr)
   if not compiler_target then
     return nil
   end
-  local normalized = normalized_path(compiler_target)
-  if not normalized then
-    return nil
-  end
-  local inferred = { target = normalized, kind = "vimtex" }
+  local inferred = { target = compiler_target, kind = "vimtex" }
   state.buffer_targets[bufnr] = inferred
   return inferred
 end
