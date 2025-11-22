@@ -1872,6 +1872,10 @@ local function execute_make(args, bang)
 
   -- Retrieve makeprg from the current buffer's options
   local makeprg = vim.api.nvim_get_option_value("makeprg", { buf = 0 })
+  if not makeprg or makeprg == "" then
+    notify("error", "No makeprg configured for this buffer")
+    return
+  end
 
   -- If makeprg contains $*, replace it with the provided arguments
   -- Otherwise, append arguments to the command
