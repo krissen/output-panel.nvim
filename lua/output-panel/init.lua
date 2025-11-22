@@ -1,5 +1,6 @@
 -- output-panel
--- Stream VimTeX compiler output and arbitrary shell commands inside a floating overlay with notification feedback.
+-- Render output from optional VimTeX/Overseer adapters and arbitrary shell commands inside a floating overlay with
+-- notification feedback.
 
 local M = {}
 
@@ -252,8 +253,8 @@ local function failure_notification_entry(scope)
   return state.failure_notifications[scope]
 end
 
--- Generate a scoped key to associate notifications with either command jobs or
--- VimTeX builds so unrelated events never clear each other's status toasts.
+-- Generate a scoped key to associate notifications with either command jobs or adapter builds so unrelated events never clear
+-- each other's status toasts.
 local function failure_scope_key(kind, identifier)
   if identifier and identifier ~= "" then
     return string.format("%s:%s", kind, identifier)
@@ -271,8 +272,8 @@ local function command_failure_scope(job)
   return failure_scope_key(kind, job.title or job.window_title or "unknown")
 end
 
--- Capture the VimTeX build scope via the compiler output path so consecutive
--- builds for the same project share a consistent identifier.
+-- Capture the VimTeX adapter scope via the compiler output path so consecutive builds for the same project share a consistent
+-- identifier.
 local function vimtex_failure_scope(target)
   return failure_scope_key("vimtex", target or state.target or "vimtex")
 end
@@ -641,8 +642,8 @@ local function resolve_target(path, source_buf)
 end
 
 -- Look up the output target associated with a buffer. Prefers explicit mappings
--- recorded when jobs start, then falls back to VimTeX compiler paths to
--- populate a new mapping on demand.
+-- recorded when jobs start, then falls back to adapter-provided compiler paths
+-- (such as VimTeX) to populate a new mapping on demand.
 local function buffer_target_for(bufnr)
   if not bufnr or bufnr <= 0 then
     return nil
@@ -834,10 +835,10 @@ local function poll_interval_ms()
 end
 
 -- Keep a lightweight polling loop running while the overlay is visible so the
--- buffer stays in sync with latexmk's stdout and the title timer keeps
+-- buffer stays in sync with whichever log is active and the title timer keeps
 -- updating. The timer exits automatically when the floating window disappears
--- (either because the user hid it or VimTeX stopped the build) and spins up
--- again the next time `render_window` requests live updates.
+-- (either because the user hid it or an adapter finished) and spins up again the
+-- next time `render_window` requests live updates.
 local function start_polling()
   if state.timer or not uv then
     return
@@ -871,7 +872,7 @@ local function ensure_output_ready(opts)
   local target = resolve_target(opts.target, opts.source_buf)
   if not target then
     if not opts.quiet then
-      notify("warn", "VimTeX does not expose a compiler output log")
+      notify("warn", "No output target available (run a command or enable an adapter)")
     end
     return nil
   end
@@ -1181,7 +1182,7 @@ local function render_window(opts)
 end
 
 -- Attempt to render the window with retry logic to handle race conditions.
--- VimTeX sometimes recreates the log file during compilation startup, causing the initial
+-- Adapters like VimTeX sometimes recreate the log file during startup, causing the initial
 -- render to fail because the file doesn't exist yet. This function retries after a delay.
 -- Uses token-based cancellation to abort retries if the window is closed or compilation stops.
 local function render_with_retry(opts)
@@ -1642,7 +1643,7 @@ local function on_buf_wipeout(event)
   state.buffer_targets[bufnr] = nil
 end
 
--- Handle VimTeX compilation start events (VimtexEventCompiling, VimtexEventCompileStarted).
+-- Handle VimTeX adapter compilation start events (VimtexEventCompiling, VimtexEventCompileStarted).
 -- Transitions state to "running", starts the timer if needed, and shows the overlay if configured.
 local function on_compile_started(event)
   if command_job_active() then
@@ -1681,7 +1682,7 @@ local function on_compile_started(event)
   end
 end
 
--- Handle VimTeX compilation success event (VimtexEventCompileSuccess).
+-- Handle VimTeX adapter compilation success event (VimtexEventCompileSuccess).
 -- Stops polling, transitions to "success" state, updates border to green, and schedules auto-hide.
 -- Replaces any previous failure notification with a success message.
 local function on_compile_succeeded(event)
@@ -1712,7 +1713,7 @@ local function on_compile_succeeded(event)
   notify("info", "LaTeX build finished" .. format_duration_suffix())
 end
 
--- Handle VimTeX compilation failure event (VimtexEventCompileFailed).
+-- Handle VimTeX adapter compilation failure event (VimtexEventCompileFailed).
 -- Stops polling, transitions to "failure" state, updates border to red, and shows persistent notification.
 -- The overlay stays visible (auto-hide is cancelled) so the user can inspect the error log.
 local function on_compile_failed(event)

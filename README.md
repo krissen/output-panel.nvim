@@ -1,12 +1,11 @@
 # output-panel.nvim
 
-A configurable floating output window for Neovim jobs. The plugin began life as a
-VimTeX helper but now exposes a generic runner so any long-running shell
-command—`Rscript`, `pandoc`, custom build scripts, etc.—can stream their stdout
-and stderr into the same lightweight panel while surfacing success/failure
-notifications, with Snacks support kept as an optional treat for extra polish.
-The original VimTeX integration
-remains available as a preconfigured profile and example workflow.
+A configurable floating output window for Neovim jobs. The plugin focuses on
+keeping a single pane of live output available no matter how the work was
+started—ad-hoc shell commands, VimTeX builds, or Overseer tasks all feed into
+the same scratch buffer and share the same notification pipeline. VimTeX and
+Overseer act as **adapters**: they are fully optional, and when present the
+panel automatically tracks their logs alongside any command you run manually.
 
 ## Requirements
 
@@ -14,24 +13,41 @@ remains available as a preconfigured profile and example workflow.
   integrations kick in automatically when available)
 - [snacks.nvim](https://github.com/folke/snacks.nvim) *(optional)* — richer
   notifications if you want that extra treat
-- [VimTeX](https://github.com/lervag/vimtex) *(optional)* — only needed if you
-  want automatic LaTeX compiler integration
+- [VimTeX](https://github.com/lervag/vimtex) *(optional adapter)* — enables
+  automatic LaTeX compiler integration
+- [Overseer.nvim](https://github.com/stevearc/overseer.nvim) *(optional
+  adapter)* — streams task output into the same panel
 
 ## Highlights
 
-- **General runner** – `require("output-panel").run()` executes any shell
-  command asynchronously, streams live output, colours the border based on exit
-  status, and fires notifications.
+- **Output-first UI** – Everything funnels into a lightweight floating pane that
+  follows the latest job. Toggle mini/focus modes to watch logs without managing
+  extra splits or terminals.
+- **Adapters, not dependencies** – Built-in adapters understand VimTeX and
+  Overseer when installed, but the plugin also works standalone as a generic
+  command runner.
 - **Profiles & overrides** – Define reusable configuration profiles and apply
   them per command so each workflow can tweak window geometry, notification
   titles, auto-hide timing, etc.
 - **Notifier fallback chain** – Works out of the box with `vim.notify`, happily
   upgrades to `snacks.notify` when available, and accepts any custom notifier you
   want to plug in.
-- **VimTeX aware** – Ships the original auto-open, auto-hide, and command suite
-  for `latexmk` logs, now powered by the same configurable panel.
 - **Knit helper** – `require("knit.run")` is a zero-dependency runner that
   hooks into the panel only when you opt-in to live output.
+
+## Adapters
+
+The core plugin never requires VimTeX or Overseer; it shows whatever you stream
+into it. Two adapters ship in-tree to make that effortless when those plugins
+are present:
+
+- **VimTeX adapter** – Listens for compile events, tails the compiler output,
+  and reuses the same panel commands used for ad-hoc runs.
+- **Overseer adapter** – An Overseer component (`output_panel`) that mirrors task
+  output into the panel and reuses your configured profiles/notifications.
+
+Both adapters activate automatically if their host plugin loads; if not
+installed, the panel still works as a standalone command runner.
 
 ## Installation
 
@@ -123,33 +139,32 @@ the provided titles/timeouts. Use the `panel` table to
 adjust the window when live streaming (e.g. set a dedicated profile, tweak
 layout, or disable `notify_start`).
 
-### VimTeX integration
+### VimTeX adapter
 
-Install VimTeX, call `setup()`, and the panel automatically follows
-`VimtexEventCompiling`, `VimtexEventCompileSuccess`, etc. The plugin now exposes
-general commands while keeping the VimTeX-prefixed aliases for compatibility:
+When VimTeX is installed, `setup()` wires the panel to
+`VimtexEventCompiling`, `VimtexEventCompileSuccess`, etc. The same commands work
+with or without VimTeX; aliases remain for existing mappings:
 
 | Command | Description |
 | --- | --- |
-| `:OutputPanelShow` | Open the panel for the active VimTeX buffer or last command. |
+| `:OutputPanelShow` | Open the panel for the active VimTeX buffer, Overseer task, or last command. |
 | `:OutputPanelHide` | Close the panel. |
 | `:OutputPanelToggle` | Toggle visibility. |
 | `:OutputPanelToggleFocus` | Switch between mini/focus layouts. |
 | `:OutputPanelToggleFollow` | Toggle follow/tail mode. |
 
 Legacy `:VimtexOutput*` commands remain as aliases so existing mappings keep
-working.
+working whether or not VimTeX is present.
 
 Press `<Esc>` while focused to drop back to the compact mini overlay without closing
 the panel.
 
-The overlay attaches to VimTeX's compiler log (usually the `latexmk` stdout
-buffer) and retains all prior behaviours—auto-open on compilation, optional
-auto-hide on success, green/red borders, and persistent error notifications.
-When you jump between buffers tied to different VimTeX projects, Overseer tasks,
-or command runs started via the panel, the window retargets itself to the
-new buffer's log. Buffers without an associated job leave the current output in
-place, avoiding unnecessary flicker.
+When available, the adapter attaches to VimTeX's compiler log (usually the
+`latexmk` stdout buffer) and retains all prior behaviours—auto-open on
+compilation, optional auto-hide on success, green/red borders, and persistent
+error notifications. Switching buffers retargets the window to whatever log is
+active (VimTeX project, Overseer task, or manual command). Buffers without an
+associated job leave the current output in place, avoiding unnecessary flicker.
 
 ### API helpers
 
@@ -307,11 +322,10 @@ This applies everywhere—VimTeX events and manual command runs.
 - **Want different layouts per workflow** – Define multiple profiles and pass
   `profile = "name"` when calling `run()`.
 
-## Why keep the VimTeX docs?
+## VimTeX adapter vs VimTeX stock output
 
-The project started as *snacks-vimtex-output*, and the LaTeX workflow remains a
-first-class citizen. VimTeX already streams compiler logs to splits, but the
-panel provides:
+VimTeX already streams compiler logs to splits; the adapter simply adds a
+floating overlay and notification layer on top:
 
 | Feature | Panel | VimTeX stock output |
 | --- | --- | --- |
@@ -320,9 +334,9 @@ panel provides:
 | Visual status | Border colours + notifications | Messages only |
 | Buffer type | Scratch, hidden by default | Normal buffer |
 
-Use whichever suits your workflow—the panel simply adds a custom floating skin
-on top of VimTeX's reliable compilation backend while now powering any other
-command you want to monitor.
+Use whichever suits your workflow—the panel adds a custom floating skin on top
+of VimTeX's reliable compilation backend while also powering any other command
+or task you want to monitor.
 
 ## How does this compare to other plugins?
 
@@ -331,8 +345,8 @@ deliberately fills the gap between a full task manager and raw quickfix output.
 In particular, [Overseer.nvim](https://github.com/stevearc/overseer.nvim) should
 be your first stop whenever you want templated builds, task registries, file
 watchers, or an interactive dashboard. Reach for output-panel.nvim when you only
-need a single command (or VimTeX) log visible in the background with minimal
-setup and no extra UI to manage.
+need a single command, VimTeX build, or Overseer task log visible in the
+background with minimal setup and no extra UI to manage.
 
 ### Overseer.nvim
 
