@@ -75,14 +75,17 @@ local default_config = {
     vimtex = {
       enabled = true,
       notifications = { title = "VimTeX" },
+      window_title = "VimTeX",
     },
     overseer = {
       enabled = true,
       notifications = { title = "Overseer" },
+      window_title = "Overseer",
     },
     make = {
       enabled = true,
       notifications = { title = "Make" },
+      window_title = "Make",
       auto_hide = { enabled = true },
     },
   },
@@ -541,8 +544,14 @@ local function status_title()
     base = state.job.window_title
   else
     local cfg = current_config()
-    local notifications = cfg.notifications or {}
-    base = notifications.title or "Output"
+    -- Prefer window_title from the active config/profile if set
+    if cfg.window_title then
+      base = cfg.window_title
+    else
+      -- Fall back to notifications.title for backwards compatibility
+      local notifications = cfg.notifications or {}
+      base = notifications.title or "Output"
+    end
   end
   if label and elapsed then
     return string.format("%s · %s · %.1fs", base, label, elapsed)
@@ -591,6 +600,19 @@ local function close_window(opts)
   stop_polling()
   clear_scrolloff_guard()
   clear_mini_anchor_guard()
+
+  -- For auto-hide, preserve the current window before closing the float.
+  -- When nvim_win_close is called, Neovim automatically switches focus to another window,
+  -- which can cause unwanted focus changes. By capturing the current window first and
+  -- restoring it after closing, we ensure auto-hide is completely non-invasive.
+  local preserved_win = nil
+  if opts.reason == "auto_success" then
+    local current = vim.api.nvim_get_current_win()
+    if current ~= state.win then
+      preserved_win = current
+    end
+  end
+
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -602,7 +624,17 @@ local function close_window(opts)
     vim.o.scrolloff = state.scrolloff_restore
     state.scrolloff_restore = nil
   end
-  restore_previous_window()
+
+  -- Restore focus based on close reason:
+  -- - auto_success: restore the window that was active before the close operation (uses pcall for safety)
+  -- - other reasons: restore the window that was active before entering focus mode (restore_previous_window has pcall internally)
+  if opts.reason == "auto_success" then
+    if preserved_win and vim.api.nvim_win_is_valid(preserved_win) then
+      pcall(vim.api.nvim_set_current_win, preserved_win)
+    end
+  else
+    restore_previous_window()
+  end
 end
 
 local function schedule_hide(delay)
@@ -1682,6 +1714,31 @@ local function on_buf_wipeout(event)
   state.buffer_targets[bufnr] = nil
 end
 
+-- Apply the vimtex profile configuration for VimTeX compilation events.
+-- This ensures VimTeX builds use the correct window title and other profile settings.
+-- Only applies if no command job is active to avoid interfering with M.run() calls.
+local function apply_vimtex_profile()
+  if command_job_active() then
+    return false
+  end
+  local base_profiles = config.profiles or {}
+  if base_profiles.vimtex then
+    set_active_config(vim.deepcopy(base_profiles.vimtex))
+    return true
+  end
+  return false
+end
+
+-- Reset the active configuration after VimTeX compilation completes.
+-- This cleanup ensures subsequent operations use the base config.
+-- Only resets if no command job is active to avoid interfering with M.run() calls.
+local function reset_vimtex_profile()
+  if command_job_active() then
+    return
+  end
+  set_active_config(nil)
+end
+
 -- Handle VimTeX adapter compilation start events (VimtexEventCompiling, VimtexEventCompileStarted).
 -- Transitions state to "running", starts the timer if needed, and shows the overlay if configured.
 local function on_compile_started(event)
@@ -1689,6 +1746,10 @@ local function on_compile_started(event)
     return
   end
   state.job = nil
+  -- Apply vimtex profile if available. Return value can be ignored since current_config()
+  -- will fall back to base config if no profile was applied.
+  apply_vimtex_profile()
+
   local cfg = current_config()
   local ctx = event_context(event)
   local failure_scope = vimtex_failure_scope(ctx.target)
@@ -1750,6 +1811,7 @@ local function on_compile_succeeded(event)
   -- Replace previous failure notification if one exists
   clear_failure_notification(failure_scope)
   notify("info", "LaTeX build finished" .. format_duration_suffix())
+  reset_vimtex_profile()
 end
 
 -- Handle VimTeX adapter compilation failure event (VimtexEventCompileFailed).
@@ -1787,6 +1849,7 @@ local function on_compile_failed(event)
     failure_entry.scope = failure_scope
     state.failure_notifications[failure_scope] = failure_entry
   end
+  reset_vimtex_profile()
 end
 
 local function on_compile_stopped()
@@ -1804,6 +1867,7 @@ local function on_compile_stopped()
   else
     refresh_window_title()
   end
+  reset_vimtex_profile()
 end
 
 local function setup_autocmds()
