@@ -617,8 +617,8 @@ local function close_window(opts)
   end
 
   -- Restore focus based on close reason:
-  -- - auto_success: restore the window that was active before the close operation
-  -- - other reasons: restore the window that was active before entering focus mode
+  -- - auto_success: restore the window that was active before the close operation (uses pcall for safety)
+  -- - other reasons: restore the window that was active before entering focus mode (restore_previous_window has pcall internally)
   if opts.reason == "auto_success" then
     if preserved_win and vim.api.nvim_win_is_valid(preserved_win) then
       pcall(vim.api.nvim_set_current_win, preserved_win)
