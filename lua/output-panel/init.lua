@@ -1939,7 +1939,6 @@ local function setup_commands()
     execute_make(cmd_opts.args)
   end, {
     nargs = "*",
-    bang = true,
     desc = "Run make command and show output in panel",
   })
 end
