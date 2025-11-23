@@ -1862,8 +1862,8 @@ local function execute_make(args)
   end
 
   -- Retrieve makeprg from the current buffer's options, defaulting to "make" if not set
-  local makeprg = vim.api.nvim_get_option_value("makeprg", { buf = 0 })
-  if not makeprg or makeprg == "" then
+  local ok, makeprg = pcall(vim.api.nvim_get_option_value, "makeprg", { buf = 0 })
+  if not ok or not makeprg or makeprg == "" then
     makeprg = "make"
   end
 
@@ -1883,11 +1883,7 @@ local function execute_make(args)
   -- Get the current buffer's directory for cwd; fall back to cwd if buffer has no file path
   local buf_dir = vim.fn.expand("%:p:h")
   if not buf_dir or buf_dir == "" then
-    buf_dir = vim.fn.getcwd()
-  end
-  -- Ensure we always have a valid directory
-  if not buf_dir or buf_dir == "" then
-    buf_dir = "."
+    buf_dir = vim.fn.getcwd() or "."
   end
 
   -- Run the command through the panel

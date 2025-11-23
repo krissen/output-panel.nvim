@@ -231,9 +231,12 @@ The `:Make` command (capital M) is intentionally separate from Neovim's built-in
 use the output panel instead of the quickfix list, you can remap it:
 
 ```vim
-" Command-line abbreviation: typing :make expands to :Make
-cnoreabbrev make Make
+" Safer command-line abbreviation: typing :make expands to :Make, but only for the standalone command
+cnoreabbrev <expr> make getcmdtype() == ':' && getcmdline() == 'make' ? 'Make' : 'make'
 ```
+
+**Note:** This conditional abbreviation ensures only the standalone `:make` command is remapped.  
+The simpler `cnoreabbrev make Make` can cause unexpected behavior if `make` appears in other commands (e.g., `:!make`).
 
 This way you keep your muscle memory but opt into the panel-based workflow.
 
