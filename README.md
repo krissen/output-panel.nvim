@@ -2,6 +2,14 @@
 
 A configurable floating output window for Neovim jobs that combines **optional adapters** for VimTeX and Overseer with a **generic run() API** and **:Make helper** for everything else.
 
+<br>
+
+<p align="center">
+  <img src="./.github/assets/demo.gif" width="90%" alt="Demo" />
+</p>
+
+<br>
+
 The plugin focuses on keeping a single pane of live output available no matter how the work was started—ad-hoc shell commands, VimTeX builds, Neovim's built-in `:make`, or Overseer tasks all feed into the same scratch buffer and share the same notification pipeline.
 
 **Core features:**
