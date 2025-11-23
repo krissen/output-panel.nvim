@@ -1691,6 +1691,21 @@ local function on_buf_wipeout(event)
   state.buffer_targets[bufnr] = nil
 end
 
+-- Apply the vimtex profile configuration for VimTeX compilation events.
+-- This ensures VimTeX builds use the correct window title and other profile settings.
+local function apply_vimtex_profile()
+  local base_profiles = config.profiles or {}
+  if base_profiles.vimtex then
+    set_active_config(vim.deepcopy(base_profiles.vimtex))
+  end
+end
+
+-- Reset the active configuration after VimTeX compilation completes.
+-- This cleanup ensures subsequent operations use the base config.
+local function reset_vimtex_profile()
+  set_active_config(nil)
+end
+
 -- Handle VimTeX adapter compilation start events (VimtexEventCompiling, VimtexEventCompileStarted).
 -- Transitions state to "running", starts the timer if needed, and shows the overlay if configured.
 local function on_compile_started(event)
@@ -1698,12 +1713,7 @@ local function on_compile_started(event)
     return
   end
   state.job = nil
-
-  -- Apply vimtex profile so window_title and other settings are properly configured
-  local base_profiles = config.profiles or {}
-  if base_profiles.vimtex then
-    set_active_config(vim.deepcopy(base_profiles.vimtex))
-  end
+  apply_vimtex_profile()
 
   local cfg = current_config()
   local ctx = event_context(event)
@@ -1766,8 +1776,7 @@ local function on_compile_succeeded(event)
   -- Replace previous failure notification if one exists
   clear_failure_notification(failure_scope)
   notify("info", "LaTeX build finished" .. format_duration_suffix())
-  -- Reset active config after successful build completes
-  set_active_config(nil)
+  reset_vimtex_profile()
 end
 
 -- Handle VimTeX adapter compilation failure event (VimtexEventCompileFailed).
@@ -1805,8 +1814,7 @@ local function on_compile_failed(event)
     failure_entry.scope = failure_scope
     state.failure_notifications[failure_scope] = failure_entry
   end
-  -- Reset active config after failed build completes
-  set_active_config(nil)
+  reset_vimtex_profile()
 end
 
 local function on_compile_stopped()
@@ -1824,8 +1832,7 @@ local function on_compile_stopped()
   else
     refresh_window_title()
   end
-  -- Reset active config when compilation stops
-  set_active_config(nil)
+  reset_vimtex_profile()
 end
 
 local function setup_autocmds()
