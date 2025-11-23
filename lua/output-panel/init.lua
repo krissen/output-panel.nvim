@@ -1693,16 +1693,26 @@ end
 
 -- Apply the vimtex profile configuration for VimTeX compilation events.
 -- This ensures VimTeX builds use the correct window title and other profile settings.
+-- Only applies if no command job is active to avoid interfering with M.run() calls.
 local function apply_vimtex_profile()
+  if command_job_active() then
+    return false
+  end
   local base_profiles = config.profiles or {}
   if base_profiles.vimtex then
     set_active_config(vim.deepcopy(base_profiles.vimtex))
+    return true
   end
+  return false
 end
 
 -- Reset the active configuration after VimTeX compilation completes.
 -- This cleanup ensures subsequent operations use the base config.
+-- Only resets if no command job is active to avoid interfering with M.run() calls.
 local function reset_vimtex_profile()
+  if command_job_active() then
+    return
+  end
   set_active_config(nil)
 end
 
