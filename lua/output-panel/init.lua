@@ -1863,6 +1863,9 @@ local function execute_make(args)
 
   -- Retrieve makeprg from the current buffer's options (defaults to "make" in Neovim)
   local makeprg = vim.api.nvim_get_option_value("makeprg", { buf = 0 })
+  if not makeprg or makeprg == "" then
+    makeprg = "make"
+  end
 
   -- If makeprg contains $*, replace it with the provided arguments
   -- Otherwise, append arguments to the command
@@ -1881,6 +1884,10 @@ local function execute_make(args)
   local buf_dir = vim.fn.expand("%:p:h")
   if not buf_dir or buf_dir == "" then
     buf_dir = vim.fn.getcwd()
+  end
+  -- Ensure we always have a valid directory
+  if not buf_dir or buf_dir == "" then
+    buf_dir = "."
   end
 
   -- Run the command through the panel
