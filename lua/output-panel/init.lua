@@ -1723,6 +1723,8 @@ local function on_compile_started(event)
     return
   end
   state.job = nil
+  -- Apply vimtex profile if available. Return value can be ignored since current_config()
+  -- will fall back to base config if no profile was applied.
   apply_vimtex_profile()
 
   local cfg = current_config()
