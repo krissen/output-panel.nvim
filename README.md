@@ -77,6 +77,35 @@ All adapters and helpers can be disabled via `profiles.{name}.enabled = false` w
 > work via a compatibility shim, but new setups should switch to
 > `require("output-panel")`.
 
+## Quick Start
+
+The plugin works immediately after installation with zero configuration. Here are the most common ways to use it:
+
+**Run any command with live output:**
+
+```lua
+:lua require("output-panel").run({ cmd = "npm run build" })
+```
+
+**Use :Make for build commands:**
+
+```vim
+:Make        " Run your makeprg and see output in the panel
+:Make test   " Pass arguments to makeprg
+```
+
+**If you have VimTeX installed**, LaTeX compilation output automatically appears in the panel. Use `:OutputPanelToggle` to show/hide it, or `:OutputPanelToggleFocus` to switch between mini and focus modes.
+
+**For custom workflows**, bind keys to `run()`:
+
+```lua
+vim.keymap.set("n", "<leader>b", function()
+  require("output-panel").run({ cmd = "cargo build" })
+end, { desc = "Build project" })
+```
+
+That's it! The panel handles notifications, streaming output, and visual feedback automatically. See below for advanced features like profiles, custom adapters, and configuration.
+
 ## Usage
 
 ### Running arbitrary commands
@@ -109,6 +138,25 @@ vim.keymap.set("n", "<leader>py", function()
   })
 end, { desc = "Run Python script" })
 ```
+
+#### run() options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `cmd` | `string\|table\|function` | **Required.** Command to execute. Strings run in shell (`sh -c`), tables as argv, functions return either. |
+| `title` | `string` | Notification title (defaults to command) |
+| `window_title` | `string` | Panel window title (defaults to `title`) |
+| `profile` | `string` | Apply a named profile from setup (e.g., `"rmarkdown"`) |
+| `config` | `table` | Inline configuration overrides |
+| `success` | `string` | Success notification message |
+| `error` | `string` | Error notification message |
+| `start` | `string` | Start notification message |
+| `notify_start` | `boolean` | Show start notification (default: `true`) |
+| `open` | `boolean` | Show panel immediately (default: `true`) |
+| `focus` | `boolean` | Open in focus mode vs mini mode (default: `false`) |
+| `cwd` | `string` | Working directory for the command |
+| `env` | `table` | Environment variables |
+| `on_exit` | `function` | Callback when command completes: `function(result)` |
 
 Key behaviours:
 
@@ -440,6 +488,24 @@ The core plugin intentionally ships only VimTeX, Overseer, and Make support. Thi
 `setup()` merges your overrides with the defaults below. Profiles are deep
 merged, so you can inherit global values and tweak only what each workflow
 needs.
+
+### Configuration Overview
+
+| Section | Description |
+|---------|-------------|
+| `mini` | Window dimensions for compact mini mode (unfocused overlay) |
+| `focus` | Window dimensions for focus mode (interactive, larger window) |
+| `auto_open` | Automatically show panel when commands/builds start |
+| `auto_hide` | Automatically hide panel after successful builds |
+| `notifications` | Notification behavior (titles, persistence for errors) |
+| `follow` | Auto-scroll to bottom of output (tail mode) |
+| `poll` | How often to refresh output while panel is visible |
+| `max_lines` | Maximum buffer lines before trimming old output |
+| `open_on_error` | Force panel open when commands fail (even if `open=false`) |
+| `notifier` | Custom notification backend (Snacks auto-detected by default) |
+| `profiles` | Named configuration presets for different tools/workflows |
+
+### Default Configuration
 
 ```lua
 require("output-panel").setup({
