@@ -744,7 +744,7 @@ This applies everywhere—VimTeX events and manual command runs.
 
 - **Nothing shows up when running a command** – Ensure you're on Neovim 0.8+
   and that the command exists in your `$PATH`. The panel writes every chunk to a
-  temp file; inspect the raw output with `:lua vim.cmd.edit(require("output-panel").get_log_path())`.
+  temp file which you can inspect with `:edit ` followed by the path from `:lua print(require("output-panel").get_log_path())`.
 - **VimTeX overlay never opens** – Set `auto_open.enabled = true` or run one of
   the `:OutputPanel*` commands manually (legacy `:VimtexOutput*` aliases also
   work). Verify `vim.b.vimtex.compiler.output` is populated in your TeX buffer.
