@@ -209,6 +209,7 @@ with or without VimTeX; aliases remain for existing mappings:
 | `:OutputPanelToggle` | Toggle visibility. |
 | `:OutputPanelToggleFocus` | Switch between mini/focus layouts. |
 | `:OutputPanelToggleFollow` | Toggle follow/tail mode. |
+| `:OutputPanelOpenLog` | Open the raw log file in a buffer for debugging. |
 
 Legacy `:VimtexOutput*` commands remain as aliases so existing mappings keep
 working whether or not VimTeX is present.
@@ -332,6 +333,7 @@ panel.run({...})                -- run arbitrary commands (see above)
 panel.stream({...})             -- create a streaming session for external tools
 panel.make(args)                -- run :make with optional arguments
 panel.adapter_enabled("name")   -- check if an adapter/profile is enabled
+panel.get_log_path()            -- get current log file path for debugging
 ```
 
 #### stream() API
@@ -374,167 +376,6 @@ The session handle provides:
 - `session:finish(result)` – Complete the session with exit code and trigger notifications
 
 This is the same API used internally by the Overseer adapter. See the "Writing Custom Adapters" section below for a complete example.
-
-## Writing Custom Adapters
-
-You can write adapters for other tools that generate output: LSP build servers, Neotest runners, custom build systems, formatters, linters, etc.
-
-### Adapter Patterns
-
-There are two main patterns for integrating external tools:
-
-#### Pattern 1: Simple wrapper using `run()`
-
-For tools where you control the command invocation, use `run()` directly:
-
-```lua
--- Example: R Markdown rendering adapter
-vim.keymap.set("n", "<leader>rr", function()
-  local panel = require("output-panel")
-  panel.run({
-    cmd = { "Rscript", "-e", "rmarkdown::render('" .. vim.fn.expand("%") .. "')" },
-    profile = "rmarkdown",
-    title = "R Markdown",
-    success = "Document rendered",
-    error = "Rendering failed",
-  })
-end, { desc = "Render R Markdown document" })
-```
-
-#### Pattern 2: Event-driven adapter using `stream()`
-
-For tools that have their own lifecycle (build servers, test runners, task systems), use `stream()` to bridge events into the panel:
-
-```lua
--- Example: LSP build server adapter
-local function setup_lsp_build_adapter()
-  local panel = require("output-panel")
-  local session = nil
-  
-  -- Hook into LSP progress notifications
-  vim.api.nvim_create_autocmd("LspProgress", {
-    callback = function(args)
-      local client = vim.lsp.get_client_by_id(args.data.client_id)
-      if not client or client.name ~= "rust_analyzer" then
-        return
-      end
-      
-      local value = args.data.params.value
-      
-      if value.kind == "begin" and value.title == "Building" then
-        -- Start new streaming session
-        session = panel.stream({
-          kind = "lsp_build",
-          title = "Rust Build",
-          window_title = "cargo build",
-          profile = "rust",
-          notify_start = true,
-          start = "Building Rust project...",
-          success = "Build successful",
-          error = "Build failed",
-        })
-      elseif session and value.kind == "report" then
-        -- Append progress messages
-        if value.message then
-          session:append_stdout(value.message .. "\n")
-        end
-      elseif session and value.kind == "end" then
-        -- Finish the session
-        local code = value.message and value.message:match("error") and 1 or 0
-        session:finish({ code = code })
-        session = nil
-      end
-    end,
-  })
-end
-```
-
-### Full Example: Overseer Component Adapter
-
-The built-in Overseer adapter demonstrates a complete integration. Here's how it works:
-
-```lua
--- lua/overseer/component/my_adapter.lua
-local panel = require("output-panel")
-
-return {
-  desc = "Send task output to output-panel.nvim",
-  params = {
-    open = { type = "boolean", default = true },
-    focus = { type = "boolean", default = false },
-    profile = { type = "string", default = "overseer", optional = true },
-  },
-  constructor = function(params)
-    return {
-      stream = nil,
-      on_start = function(self, task)
-        -- Create streaming session when task starts
-        self.stream = panel.stream({
-          kind = "overseer",
-          title = task.name,
-          profile = params.profile,
-          focus = params.focus,
-          open = params.open,
-        })
-      end,
-      on_output = function(self, _, data, stream)
-        -- Forward output to panel
-        if not self.stream then return end
-        if stream == "stderr" then
-          self.stream:append_stderr(data)
-        else
-          self.stream:append_stdout(data)
-        end
-      end,
-      on_complete = function(self, _, status, result)
-        -- Finish session with exit code
-        if not self.stream then return end
-        local code = status == "SUCCESS" and 0 or 1
-        self.stream:finish({ code = code })
-        self.stream = nil
-      end,
-    }
-  end,
-}
-```
-
-### Adapter Best Practices
-
-1. **Use profiles** – Define a custom profile for your adapter so users can configure it independently:
-   ```lua
-   require("output-panel").setup({
-     profiles = {
-       my_tool = {
-         enabled = true,
-         notifications = { title = "My Tool" },
-         auto_hide = { enabled = false },
-       },
-     },
-   })
-   ```
-
-2. **Respect enabled flag** – Check if your adapter is enabled before starting:
-   ```lua
-   if not panel.adapter_enabled("my_tool") then
-     vim.notify("My Tool adapter is disabled", vim.log.levels.WARN)
-     return
-   end
-   ```
-
-3. **Handle session conflicts** – Only one command can stream at a time. `stream()` returns `nil` if another job is active.
-
-4. **Normalize output** – The panel expects strings for `append_stdout/stderr`. Convert tables to newline-separated text if needed.
-
-5. **Set meaningful titles** – Use different `title` (for notifications) and `window_title` (for the panel header) when appropriate.
-
-### Sharing Adapters
-
-If you write an adapter for a popular tool, consider:
-- Publishing it as a standalone plugin (e.g., `my-tool-output-panel.nvim`)
-- Documenting the required setup in your adapter's README
-- Using the same patterns as the built-in adapters for consistency
-
-The core plugin ships only VimTeX, Overseer, and Make support to keep the codebase focused.
 
 ## Configuration
 
@@ -736,11 +577,172 @@ This applies everywhere—VimTeX events and manual command runs.
 - Assign `notifier` to integrate with `noice.nvim`, `rcarriga/nvim-notify`, or
   any custom logger.
 
+## Writing Custom Adapters
+
+You can write adapters for other tools that generate output: LSP build servers, Neotest runners, custom build systems, formatters, linters, etc.
+
+### Adapter Patterns
+
+There are two main patterns for integrating external tools:
+
+#### Pattern 1: Simple wrapper using `run()`
+
+For tools where you control the command invocation, use `run()` directly:
+
+```lua
+-- Example: R Markdown rendering adapter
+vim.keymap.set("n", "<leader>rr", function()
+  local panel = require("output-panel")
+  panel.run({
+    cmd = { "Rscript", "-e", "rmarkdown::render('" .. vim.fn.expand("%") .. "')" },
+    profile = "rmarkdown",
+    title = "R Markdown",
+    success = "Document rendered",
+    error = "Rendering failed",
+  })
+end, { desc = "Render R Markdown document" })
+```
+
+#### Pattern 2: Event-driven adapter using `stream()`
+
+For tools that have their own lifecycle (build servers, test runners, task systems), use `stream()` to bridge events into the panel:
+
+```lua
+-- Example: LSP build server adapter
+local function setup_lsp_build_adapter()
+  local panel = require("output-panel")
+  local session = nil
+  
+  -- Hook into LSP progress notifications
+  vim.api.nvim_create_autocmd("LspProgress", {
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if not client or client.name ~= "rust_analyzer" then
+        return
+      end
+      
+      local value = args.data.params.value
+      
+      if value.kind == "begin" and value.title == "Building" then
+        -- Start new streaming session
+        session = panel.stream({
+          kind = "lsp_build",
+          title = "Rust Build",
+          window_title = "cargo build",
+          profile = "rust",
+          notify_start = true,
+          start = "Building Rust project...",
+          success = "Build successful",
+          error = "Build failed",
+        })
+      elseif session and value.kind == "report" then
+        -- Append progress messages
+        if value.message then
+          session:append_stdout(value.message .. "\n")
+        end
+      elseif session and value.kind == "end" then
+        -- Finish the session
+        local code = value.message and value.message:match("error") and 1 or 0
+        session:finish({ code = code })
+        session = nil
+      end
+    end,
+  })
+end
+```
+
+### Full Example: Overseer Component Adapter
+
+The built-in Overseer adapter demonstrates a complete integration. Here's how it works:
+
+```lua
+-- lua/overseer/component/my_adapter.lua
+local panel = require("output-panel")
+
+return {
+  desc = "Send task output to output-panel.nvim",
+  params = {
+    open = { type = "boolean", default = true },
+    focus = { type = "boolean", default = false },
+    profile = { type = "string", default = "overseer", optional = true },
+  },
+  constructor = function(params)
+    return {
+      stream = nil,
+      on_start = function(self, task)
+        -- Create streaming session when task starts
+        self.stream = panel.stream({
+          kind = "overseer",
+          title = task.name,
+          profile = params.profile,
+          focus = params.focus,
+          open = params.open,
+        })
+      end,
+      on_output = function(self, _, data, stream)
+        -- Forward output to panel
+        if not self.stream then return end
+        if stream == "stderr" then
+          self.stream:append_stderr(data)
+        else
+          self.stream:append_stdout(data)
+        end
+      end,
+      on_complete = function(self, _, status, result)
+        -- Finish session with exit code
+        if not self.stream then return end
+        local code = status == "SUCCESS" and 0 or 1
+        self.stream:finish({ code = code })
+        self.stream = nil
+      end,
+    }
+  end,
+}
+```
+
+### Adapter Best Practices
+
+1. **Use profiles** – Define a custom profile for your adapter so users can configure it independently:
+   ```lua
+   require("output-panel").setup({
+     profiles = {
+       my_tool = {
+         enabled = true,
+         notifications = { title = "My Tool" },
+         auto_hide = { enabled = false },
+       },
+     },
+   })
+   ```
+
+2. **Respect enabled flag** – Check if your adapter is enabled before starting:
+   ```lua
+   if not panel.adapter_enabled("my_tool") then
+     vim.notify("My Tool adapter is disabled", vim.log.levels.WARN)
+     return
+   end
+   ```
+
+3. **Handle session conflicts** – Only one command can stream at a time. `stream()` returns `nil` if another job is active.
+
+4. **Normalize output** – The panel expects strings for `append_stdout/stderr`. Convert tables to newline-separated text if needed.
+
+5. **Set meaningful titles** – Use different `title` (for notifications) and `window_title` (for the panel header) when appropriate.
+
+### Sharing Adapters
+
+If you write an adapter for a popular tool, consider:
+- Publishing it as a standalone plugin (e.g., `my-tool-output-panel.nvim`)
+- Documenting the required setup in your adapter's README
+- Using the same patterns as the built-in adapters for consistency
+
+The core plugin ships only VimTeX, Overseer, and Make support to keep the codebase focused.
+
 ## Troubleshooting
 
 - **Nothing shows up when running a command** – Ensure you're on Neovim 0.8+
   and that the command exists in your `$PATH`. The panel writes every chunk to a
-  temp file; open it via `:edit {path}` to inspect raw output.
+  temp file; inspect it with `:OutputPanelOpenLog`.
 - **VimTeX overlay never opens** – Set `auto_open.enabled = true` or run one of
   the `:OutputPanel*` commands manually (legacy `:VimtexOutput*` aliases also
   work). Verify `vim.b.vimtex.compiler.output` is populated in your TeX buffer.

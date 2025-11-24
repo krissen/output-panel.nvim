@@ -1970,6 +1970,12 @@ function M.make(args)
   execute_make(args or "")
 end
 
+-- Get the current log file path for debugging purposes.
+-- Returns nil if no output target is active.
+function M.get_log_path()
+  return state.target
+end
+
 local function setup_commands()
   -- Provide generic commands plus VimTeX-prefixed aliases for backwards compatibility.
   local commands = {
@@ -2000,6 +2006,19 @@ local function setup_commands()
   end, {
     nargs = "*",
     desc = "Run make command and show output in panel",
+  })
+
+  -- Provide :OutputPanelOpenLog command for debugging - opens the raw log file
+  pcall(vim.api.nvim_del_user_command, "OutputPanelOpenLog")
+  vim.api.nvim_create_user_command("OutputPanelOpenLog", function()
+    local log_path = M.get_log_path()
+    if log_path then
+      vim.cmd.edit(log_path)
+    else
+      notify("warn", "No log file available. Run a command first.")
+    end
+  end, {
+    desc = "Open the raw output log file for debugging",
   })
 end
 
