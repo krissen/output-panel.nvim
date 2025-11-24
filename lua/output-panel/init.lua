@@ -1970,6 +1970,12 @@ function M.make(args)
   execute_make(args or "")
 end
 
+-- Get the current log file path for debugging purposes.
+-- Returns nil if no output target is active.
+function M.get_log_path()
+  return state.target
+end
+
 local function setup_commands()
   -- Provide generic commands plus VimTeX-prefixed aliases for backwards compatibility.
   local commands = {

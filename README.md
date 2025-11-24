@@ -335,6 +335,7 @@ panel.run({...})                -- run arbitrary commands (see above)
 panel.stream({...})             -- create a streaming session for external tools
 panel.make(args)                -- run :make with optional arguments
 panel.adapter_enabled("name")   -- check if an adapter/profile is enabled
+panel.get_log_path()            -- get current log file path for debugging
 ```
 
 #### stream() API
@@ -743,7 +744,7 @@ This applies everywhere—VimTeX events and manual command runs.
 
 - **Nothing shows up when running a command** – Ensure you're on Neovim 0.8+
   and that the command exists in your `$PATH`. The panel writes every chunk to a
-  temp file; open it via `:edit {path}` to inspect raw output.
+  temp file; inspect the raw output with `:lua vim.cmd.edit(require("output-panel").get_log_path())`.
 - **VimTeX overlay never opens** – Set `auto_open.enabled = true` or run one of
   the `:OutputPanel*` commands manually (legacy `:VimtexOutput*` aliases also
   work). Verify `vim.b.vimtex.compiler.output` is populated in your TeX buffer.
