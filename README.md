@@ -10,7 +10,7 @@ A configurable floating output window for Neovim jobs that combines **optional a
 
 <br>
 
-The plugin focuses on keeping a single pane of live output available no matter how the work was started—ad-hoc shell commands, VimTeX builds, Neovim's built-in `:make`, or Overseer tasks all feed into the same scratch buffer and share the same notification pipeline.
+The plugin focuses on keeping a single pane of live output available no matter how the work was started: ad-hoc shell commands, VimTeX builds, Neovim's built-in `:make`, or Overseer tasks all feed into the same scratch buffer and share the same notification pipeline.
 
 **Core features:**
 - **Generic `run()` API** – Execute any shell command with live output streaming
@@ -81,9 +81,6 @@ All adapters and helpers can be disabled via `profiles.{name}.enabled = false` w
 }
 ```
 
-> **Migration notes:**
-> - Existing configs that still `require("snacks-vimtex-output")` continue to work via a compatibility shim, but new setups should switch to `require("output-panel")`.
-> - The `knit.run` helper module has been removed. Use `output-panel.run()` directly instead. The `knit` profile is no longer included in defaults but you can keep it in your config if needed.
 
 ## Quick Start
 
@@ -212,6 +209,7 @@ with or without VimTeX; aliases remain for existing mappings:
 | `:OutputPanelToggle` | Toggle visibility. |
 | `:OutputPanelToggleFocus` | Switch between mini/focus layouts. |
 | `:OutputPanelToggleFollow` | Toggle follow/tail mode. |
+| `:OutputPanelOpenLog` | Open the raw log file in a buffer for debugging. |
 
 Legacy `:VimtexOutput*` commands remain as aliases so existing mappings keep
 working whether or not VimTeX is present.
@@ -229,8 +227,8 @@ associated job leave the current output in place, avoiding unnecessary flicker.
 #### How the VimTeX adapter works
 
 The VimTeX adapter automatically hooks into VimTeX compilation events when VimTeX
-is installed. It **does not replace** VimTeX's built-in commands or functionality
-— VimTeX continues to work normally. The adapter simply adds the output panel as
+is installed. It **does not replace** VimTeX's built-in commands or functionality.
+VimTeX continues to work normally. The adapter simply adds the output panel as
 an additional UI layer on top of VimTeX's compilation process.
 
 - **VimTeX commands**: Continue to work as normal (`:VimtexCompile`, etc.)
@@ -335,6 +333,7 @@ panel.run({...})                -- run arbitrary commands (see above)
 panel.stream({...})             -- create a streaming session for external tools
 panel.make(args)                -- run :make with optional arguments
 panel.adapter_enabled("name")   -- check if an adapter/profile is enabled
+panel.get_log_path()            -- get current log file path for debugging
 ```
 
 #### stream() API
@@ -377,6 +376,206 @@ The session handle provides:
 - `session:finish(result)` – Complete the session with exit code and trigger notifications
 
 This is the same API used internally by the Overseer adapter. See the "Writing Custom Adapters" section below for a complete example.
+
+## Configuration
+
+`setup()` merges your overrides with the defaults below. Profiles are deep
+merged, so you can inherit global values and tweak only what each workflow
+needs.
+
+### Configuration Overview
+
+| Section | Description |
+|---------|-------------|
+| `mini` | Window dimensions for compact mini mode (unfocused overlay) |
+| `focus` | Window dimensions for focus mode (interactive, larger window) |
+| `auto_open` | Automatically show panel when commands/builds start |
+| `auto_hide` | Automatically hide panel after successful builds |
+| `notifications` | Notification behavior (titles, persistence for errors) |
+| `follow` | Auto-scroll to bottom of output (tail mode) |
+| `poll` | How often to refresh output while panel is visible |
+| `max_lines` | Maximum buffer lines before trimming old output |
+| `open_on_error` | Force panel open when commands fail (even if `open=false`) |
+| `notifier` | Custom notification backend (Snacks auto-detected by default) |
+| `window_title` | Title shown in the floating window border (defaults to `notifications.title`) |
+| `profiles` | Named configuration presets for different tools/workflows |
+
+### Default Configuration
+
+```lua
+require("output-panel").setup({
+  mini = {
+    width_scale = 0.90,
+    width_min = 48,
+    width_max = 120,
+    height_ratio = 0.10,
+    height_min = 5,
+    height_max = 14,
+    row_anchor = "bottom",
+    row_offset = 5,
+    flip_row_offset = 0,
+    horizontal_align = 0.55,
+    col_offset = 0,
+    avoid_cursor = true,
+  },
+  focus = {
+    width_scale = 0.95,
+    width_min = 70,
+    width_max = 220,
+    height_ratio = 0.6,
+    height_min = 14,
+    height_max = 0,
+    row_anchor = "center",
+    row_offset = -1,
+    horizontal_align = 0.5,
+    col_offset = 0,
+  },
+  scrolloff_margin = 5,
+  border_highlight = "FloatBorder",
+  auto_open = {
+    enabled = false,
+    retries = 6,
+    delay = 150,
+  },
+  auto_hide = {
+    enabled = true,
+    delay = 3000,
+  },
+  notifications = {
+    enabled = true,
+    title = "Runner",
+    persist_failure = 45,
+  },
+  follow = {
+    enabled = true,
+  },
+  poll = {
+    interval = 150,
+  },
+  max_lines = 4000,
+  open_on_error = true,
+  notifier = nil,
+  profiles = {
+    vimtex = {
+      enabled = true,
+      notifications = { title = "VimTeX" },
+      window_title = "VimTeX",
+    },
+    overseer = {
+      enabled = true,
+      notifications = { title = "Overseer" },
+      window_title = "Overseer",
+    },
+    make = {
+      enabled = true,
+      notifications = { title = "Make" },
+      window_title = "Make",
+      auto_hide = { enabled = true },
+    },
+  },
+})
+```
+
+While the mini overlay is visible, the plugin raises `scrolloff` to at least
+the panel height plus `scrolloff_margin`, reapplying that padding if you adjust
+`scrolloff` manually. Your original `scrolloff` is restored whenever the panel
+closes or you enter focus mode.
+
+`follow.enabled` keeps the panel in tail/follow mode whenever it's opened.
+`poll.interval` controls how often (in milliseconds) the plugin refreshes the
+log buffer while the window is visible—lower values update faster but run the
+timer more frequently. `notifications.persist_failure` accepts `false` to skip
+sticky errors, `0`, `-1`, or `true` to keep them indefinitely, and positive
+numbers for the number of seconds (45 by default) before dismissing the toast.
+Failure notifications are scoped per build/command, so rerunning the same job,
+letting a watcher (like VimTeX's continuous `latexmk`) kick off another cycle,
+or simply finishing successfully immediately clears the stale error. Clearing a
+toast never prunes Snacks' history viewer, so you can still audit prior errors
+while unrelated tasks keep their own entries. Toggle it ad-hoc via
+`:OutputPanelToggleFollow` (alias: `:VimtexOutputToggleFollow`) or
+`require("output-panel").toggle_follow()`. `max_lines` trims the scratch buffer
+so very chatty commands never retain more than the configured line count, and
+`open_on_error` makes failures pop the panel even if live output was disabled
+while the job ran.
+
+### Profiles
+
+Profiles are arbitrary tables merged into the active configuration whenever you
+call `run({ profile = "name" })` or when built-in adapters (VimTeX, Overseer, Make) trigger.
+Use them to change the window title, notification settings, auto-hide behaviour,
+or window layout for a specific workflow without touching other commands.
+
+All profiles (including the built-in adapters `vimtex` and `overseer`, plus the
+`make` helper) support an `enabled` field that allows you to temporarily disable
+an adapter, helper, or profile without removing its configuration.
+
+**Window Title Configuration:**
+
+The floating window title (shown in the border) is determined by the following precedence:
+1. Explicit `window_title` parameter passed to `run()` or `stream()`
+2. Profile's `window_title` setting (e.g., `profiles.vimtex.window_title = "VimTeX"`)
+3. Profile's `notifications.title` (for backwards compatibility)
+4. Global `window_title` setting
+5. Global `notifications.title` (defaults to "Output")
+
+This allows each adapter to show its own title (e.g., "VimTeX · Building · 1.2s"
+for LaTeX builds, "Make · Done · 0.5s" for make commands) while letting users
+override titles per profile or per command.
+
+```lua
+require("output-panel").setup({
+  profiles = {
+    vimtex = {
+      enabled = false,  -- Disable VimTeX adapter
+    },
+    make = {
+      enabled = true,   -- Keep Make helper enabled (default)
+      notifications = { title = "Build" },
+      window_title = "Build",  -- Title shown in float border
+    },
+    my_custom_profile = {
+      enabled = false,  -- Disable custom profile temporarily
+      notifications = { title = "Custom Task" },
+      window_title = "My Tool",  -- Custom window title
+      auto_hide = { enabled = false },
+    },
+  },
+})
+```
+
+You can also bypass profiles and pass `config = { ... }` directly to `run()` for
+one-off overrides.
+
+### Notification backends
+
+Notifications follow a fallback chain:
+
+1. Custom notifier provided via `setup({ notifier = { info=…, warn=…, error=… } })`
+2. `snacks.notify` (if Snacks is installed and exposes it)
+3. `vim.notify`
+
+This applies everywhere—VimTeX events and manual command runs.
+
+### Tips
+
+- Increase `mini.height_ratio` or `mini.height_max` if your commands are chatty.
+- Bump `scrolloff_margin` if the mini panel covers your cursor.
+- The mini overlay will flip to the opposite edge if it would hide your cursor.
+  Disable this by setting `mini.avoid_cursor = false` if you prefer it to stay put near the start or end of a buffer.
+- Tune `mini.flip_row_offset` if you want a different gap when the overlay flips
+  to the opposite edge (defaults to no gap when flipped).
+- Set `auto_open.enabled = true` to auto-pop the panel whenever VimTeX begins
+  compiling.
+- Disable `auto_open` inside specific profiles to keep background commands from
+  popping the overlay.
+- Disable `auto_hide` globally or per profile if you want successful runs to
+  stay visible.
+- Toggle follow mode with `:OutputPanelToggleFollow` (alias:
+  `:VimtexOutputToggleFollow`) before scrolling through older log lines.
+- Lower `max_lines` if you're running extremely verbose scripts and want to keep
+  the scratch buffer tighter.
+- Assign `notifier` to integrate with `noice.nvim`, `rcarriga/nvim-notify`, or
+  any custom logger.
 
 ## Writing Custom Adapters
 
@@ -539,211 +738,11 @@ If you write an adapter for a popular tool, consider:
 
 The core plugin ships only VimTeX, Overseer, and Make support to keep the codebase focused.
 
-## Configuration
-
-`setup()` merges your overrides with the defaults below. Profiles are deep
-merged, so you can inherit global values and tweak only what each workflow
-needs.
-
-### Configuration Overview
-
-| Section | Description |
-|---------|-------------|
-| `mini` | Window dimensions for compact mini mode (unfocused overlay) |
-| `focus` | Window dimensions for focus mode (interactive, larger window) |
-| `auto_open` | Automatically show panel when commands/builds start |
-| `auto_hide` | Automatically hide panel after successful builds |
-| `notifications` | Notification behavior (titles, persistence for errors) |
-| `follow` | Auto-scroll to bottom of output (tail mode) |
-| `poll` | How often to refresh output while panel is visible |
-| `max_lines` | Maximum buffer lines before trimming old output |
-| `open_on_error` | Force panel open when commands fail (even if `open=false`) |
-| `notifier` | Custom notification backend (Snacks auto-detected by default) |
-| `window_title` | Title shown in the floating window border (defaults to `notifications.title`) |
-| `profiles` | Named configuration presets for different tools/workflows |
-
-### Default Configuration
-
-```lua
-require("output-panel").setup({
-  mini = {
-    width_scale = 0.90,
-    width_min = 48,
-    width_max = 120,
-    height_ratio = 0.10,
-    height_min = 5,
-    height_max = 14,
-    row_anchor = "bottom",
-    row_offset = 5,
-    flip_row_offset = 0,
-    horizontal_align = 0.55,
-    col_offset = 0,
-    avoid_cursor = true,
-  },
-  focus = {
-    width_scale = 0.95,
-    width_min = 70,
-    width_max = 220,
-    height_ratio = 0.6,
-    height_min = 14,
-    height_max = 0,
-    row_anchor = "center",
-    row_offset = -1,
-    horizontal_align = 0.5,
-    col_offset = 0,
-  },
-  scrolloff_margin = 5,
-  border_highlight = "FloatBorder",
-  auto_open = {
-    enabled = false,
-    retries = 6,
-    delay = 150,
-  },
-  auto_hide = {
-    enabled = true,
-    delay = 3000,
-  },
-  notifications = {
-    enabled = true,
-    title = "VimTeX",
-    persist_failure = 45,
-  },
-  follow = {
-    enabled = true,
-  },
-  poll = {
-    interval = 150,
-  },
-  max_lines = 4000,
-  open_on_error = true,
-  notifier = nil,
-  profiles = {
-    vimtex = {
-      enabled = true,
-      notifications = { title = "VimTeX" },
-      window_title = "VimTeX",
-    },
-    overseer = {
-      enabled = true,
-      notifications = { title = "Overseer" },
-      window_title = "Overseer",
-    },
-    make = {
-      enabled = true,
-      notifications = { title = "Make" },
-      window_title = "Make",
-      auto_hide = { enabled = true },
-    },
-  },
-})
-```
-
-While the mini overlay is visible, the plugin raises `scrolloff` to at least
-the panel height plus `scrolloff_margin`, reapplying that padding if you adjust
-`scrolloff` manually. Your original `scrolloff` is restored whenever the panel
-closes or you enter focus mode.
-
-`follow.enabled` keeps the panel in tail/follow mode whenever it's opened.
-`poll.interval` controls how often (in milliseconds) the plugin refreshes the
-log buffer while the window is visible—lower values update faster but run the
-timer more frequently. `notifications.persist_failure` accepts `false` to skip
-sticky errors, `0`, `-1`, or `true` to keep them indefinitely, and positive
-numbers for the number of seconds (45 by default) before dismissing the toast.
-Failure notifications are scoped per build/command, so rerunning the same job,
-letting a watcher (like VimTeX's continuous `latexmk`) kick off another cycle,
-or simply finishing successfully immediately clears the stale error. Clearing a
-toast never prunes Snacks' history viewer, so you can still audit prior errors
-while unrelated tasks keep their own entries. Toggle it ad-hoc via
-`:OutputPanelToggleFollow` (alias: `:VimtexOutputToggleFollow`) or
-`require("output-panel").toggle_follow()`. `max_lines` trims the scratch buffer
-so very chatty commands never retain more than the configured line count, and
-`open_on_error` makes failures pop the panel even if live output was disabled
-while the job ran.
-
-### Profiles
-
-Profiles are arbitrary tables merged into the active configuration whenever you
-call `run({ profile = "name" })` or when built-in adapters (VimTeX, Overseer, Make) trigger.
-Use them to change the window title, notification settings, auto-hide behaviour,
-or window layout for a specific workflow without touching other commands.
-
-All profiles (including the built-in adapters `vimtex` and `overseer`, plus the
-`make` helper) support an `enabled` field that allows you to temporarily disable
-an adapter, helper, or profile without removing its configuration.
-
-**Window Title Configuration:**
-
-The floating window title (shown in the border) is determined by the following precedence:
-1. Explicit `window_title` parameter passed to `run()` or `stream()`
-2. Profile's `window_title` setting (e.g., `profiles.vimtex.window_title = "VimTeX"`)
-3. Profile's `notifications.title` (for backwards compatibility)
-4. Global `window_title` setting
-5. Global `notifications.title` (defaults to "Output")
-
-This allows each adapter to show its own title (e.g., "VimTeX · Building · 1.2s"
-for LaTeX builds, "Make · Done · 0.5s" for make commands) while letting users
-override titles per profile or per command.
-
-```lua
-require("output-panel").setup({
-  profiles = {
-    vimtex = {
-      enabled = false,  -- Disable VimTeX adapter
-    },
-    make = {
-      enabled = true,   -- Keep Make helper enabled (default)
-      notifications = { title = "Build" },
-      window_title = "Build",  -- Title shown in float border
-    },
-    my_custom_profile = {
-      enabled = false,  -- Disable custom profile temporarily
-      notifications = { title = "Custom Task" },
-      window_title = "My Tool",  -- Custom window title
-      auto_hide = { enabled = false },
-    },
-  },
-})
-```
-
-You can also bypass profiles and pass `config = { ... }` directly to `run()` for
-one-off overrides.
-
-### Notification backends
-
-Notifications follow a fallback chain:
-
-1. Custom notifier provided via `setup({ notifier = { info=…, warn=…, error=… } })`
-2. `snacks.notify` (if Snacks is installed and exposes it)
-3. `vim.notify`
-
-This applies everywhere—VimTeX events and manual command runs.
-
-### Tips
-
-- Increase `mini.height_ratio` or `mini.height_max` if your commands are chatty.
-- Bump `scrolloff_margin` if the mini panel covers your cursor.
-- The mini overlay will flip to the opposite edge if it would hide your cursor.
-  Disable this by setting `mini.avoid_cursor = false` if you prefer it to stay put near the start or end of a buffer.
-- Tune `mini.flip_row_offset` if you want a different gap when the overlay flips
-  to the opposite edge (defaults to no gap when flipped).
-- Set `auto_open.enabled = true` to auto-pop the panel whenever VimTeX begins
-  compiling.
-- Disable `auto_open` inside specific profiles to keep background commands from
-  popping the overlay.
-- Disable `auto_hide` globally or per profile if you want successful runs to
-  stay visible.
-- Toggle follow mode with `:OutputPanelToggleFollow` (alias:
-  `:VimtexOutputToggleFollow`) before scrolling through older log lines.
-- Lower `max_lines` if you're running extremely verbose scripts and want to keep
-  the scratch buffer tighter.
-- Assign `notifier` to integrate with `noice.nvim`, `rcarriga/nvim-notify`, or
-  any custom logger.
-
 ## Troubleshooting
 
 - **Nothing shows up when running a command** – Ensure you're on Neovim 0.8+
   and that the command exists in your `$PATH`. The panel writes every chunk to a
-  temp file; open it via `:edit {path}` to inspect raw output.
+  temp file; inspect it with `:OutputPanelOpenLog`.
 - **VimTeX overlay never opens** – Set `auto_open.enabled = true` or run one of
   the `:OutputPanel*` commands manually (legacy `:VimtexOutput*` aliases also
   work). Verify `vim.b.vimtex.compiler.output` is populated in your TeX buffer.
@@ -764,7 +763,7 @@ floating overlay and notification layer on top:
 | Visual status | Border colours + notifications | Messages only |
 | Buffer type | Scratch, hidden by default | Normal buffer |
 
-Use whichever suits your workflow—the panel adds a custom floating skin on top
+Use whichever suits your workflow: the panel adds a custom floating skin on top
 of VimTeX's reliable compilation backend while also powering any other command
 or task you want to monitor.
 
